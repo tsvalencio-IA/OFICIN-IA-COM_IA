@@ -4,9 +4,9 @@
  * Recriação: experiência dentro do OFICIN-IA.
  * - Superadmin libera/bloqueia por tenant.
  * - Usuário/senha são lidos da configuração da oficina.
- * - Sem endpoint/API conhecido, o portal é carregado dentro de uma janela interna (iframe/WebView).
- * - Há tentativa de auto-preenchimento quando o navegador permitir acesso ao frame.
- * - Se o fornecedor bloquear iframe/CORS/X-Frame-Options, o front-end não consegue forçar login; nesse caso é preciso proxy/backend ou app WebView nativo.
+ * - Fluxo principal corrigido: Jarvis/Equipe chamam o robô backend /api/diagnostico.
+ * - O iframe/portal externo fica apenas como emergência manual.
+ * - Conversa curta é salva em localStorage para restaurar ao sair e voltar.
  */
 (function () {
   'use strict';
@@ -430,7 +430,7 @@
 
   async function perguntarEndpoint(pergunta, perfil) {
     const cfg = await carregarConfigTenant();
-    if (!cfg.endpoint) throw new Error('Endpoint/proxy da IA Diagnóstico não configurado.');
+    if (!cfg.endpoint) cfg.endpoint = ROBO_PROXY_PADRAO;
     const conv = lerConversa();
     const payload = {
       pergunta,
@@ -684,7 +684,7 @@
       return;
     }
 
-    if (cfg.usarApiReal || cfg.endpoint) {
+    if (cfg.endpoint || cfg.usarApiReal || ROBO_PROXY_PADRAO) {
       addUser(message);
       const lid = addBot('<span class="j-spinner"></span> Consultando IA Diagnóstico Automotivo real...');
       try {
@@ -728,17 +728,55 @@
     }
   }
 
+  async function diagnosticoAvisoUsoChat() {
+    const cfg = await carregarConfigTenant(true);
+    if (!cfg.moduloLiberado || !cfg.ativo) {
+      addBot('IA Diagnóstico bloqueada para este tenant. Libere o módulo no Superadmin.');
+      return;
+    }
+    addBot(
+      '<b>IA Diagnóstico pronta no chat.</b><br>' +
+      'Digite sua pergunta no campo abaixo e envie normalmente. O Jarvis/Equipe vai chamar o robô <code>' + esc(cfg.endpoint || ROBO_PROXY_PADRAO) + '</code> sem abrir iframe e sem copiar senha.<br><br>' +
+      '<small style="color:var(--muted,#94a3b8)">O botão antigo de login visual saiu do fluxo principal porque o navegador bloqueia acesso ao formulário externo por CORS.</small>'
+    );
+  }
+
+  async function testarRoboDiagnostico() {
+    const cfg = await carregarConfigTenant(true);
+    if (!cfg.moduloLiberado || !cfg.ativo) {
+      addBot('IA Diagnóstico bloqueada para este tenant. Libere o módulo no Superadmin.');
+      return;
+    }
+    const lid = addBot('<span class="j-spinner"></span> Testando robô da IA Diagnóstico...');
+    try {
+      const resultado = await perguntarEndpoint('Teste rápido de conexão. Responda apenas: conexão OK.', 'teste');
+      const answer = typeof resultado === 'object' ? (resultado.resposta || resultado.answer || resultado.texto || '') : resultado;
+      replaceBot(lid, '<b>Robô respondeu.</b><br>' + esc(answer || 'Conexão OK.').replace(/\n/g, '<br>'));
+    } catch (err) {
+      replaceBot(lid,
+        '<b>Não consegui testar o robô agora.</b><br>' +
+        '<small style="color:var(--muted,#94a3b8)">Motivo: ' + esc(err.message || err) + '</small><br><br>' +
+        'Confira na Vercel se as variáveis <code>DIAGNOSTICO_EMAIL</code>, <code>DIAGNOSTICO_PASSWORD</code> e <code>DIAGNOSTICO_SUPABASE_ANON_KEY</code> estão salvas.'
+      );
+    }
+  }
+
+  async function abrirPortalExternoDiagnostico() {
+    const cfg = await carregarConfigTenant(true);
+    const url = cfg.portalUrl || PORTAL_PADRAO;
+    W.open(url, '_blank', 'noopener,noreferrer');
+  }
   async function atualizarBarra() {
     const cfg = cfgCache || normalizarConfig(oficinaSessao());
     const ativo = cfg.moduloLiberado && cfg.ativo;
-    const endpoint = !!cfg.endpoint;
-    const real = !!cfg.usarApiReal && !endpoint;
-    const texto = ativo ? (endpoint ? 'IA Diagnóstico conectada por endpoint' : (real ? 'IA Diagnóstico real conectada' : 'IA Diagnóstico integrada ao tenant')) : 'IA Diagnóstico bloqueada';
+    const endpoint = cfg.endpoint || ROBO_PROXY_PADRAO;
+    const texto = ativo ? 'IA Diagnóstico conectada pelo robô' : 'IA Diagnóstico bloqueada';
     const cor = ativo ? 'var(--success,#22c55e)' : 'var(--muted,#94a3b8)';
     const conteudo = `
       <span id="thiaDiagIaStatus" style="padding:5px 9px;border-radius:999px;border:1px solid rgba(148,163,184,.25);color:${cor};">${esc(texto)}</span>
-      <button type="button" class="btn-primary" onclick="window.thiaAbrirDiagnosticoAutomotivoIntegrado();setTimeout(function(){window.thiaEntrarAutomaticoDiagnosticoIA&&window.thiaEntrarAutomaticoDiagnosticoIA();},900)">Entrar na IA</button>
-      <button type="button" class="btn-ghost" onclick="window.thiaMostrarCredenciaisDiagnosticoIA()">Credenciais / status</button>
+      <button type="button" class="btn-primary" onclick="window.thiaDiagnosticoIAAvisoUsoChat()">Usar IA no chat</button>
+      <button type="button" class="btn-ghost" onclick="window.thiaTestarDiagnosticoIA()">Testar robô</button>
+      <button type="button" class="btn-ghost" onclick="window.thiaAbrirDiagnosticoPortalExterno()">Abrir portal externo</button>
     `;
 
     const inline = D.getElementById('thiaDiagIaInlineStatus');
@@ -774,13 +812,16 @@
   W.thiaIAAsk = chamarIA;
   W.iaPerguntar = function () { return chamarIA('iaInput', 'jarvis'); };
   W.iaEnviar = function () { return chamarIA('iaInput', 'equipe'); };
-  W.thiaAbrirDiagnosticoAutomotivo = abrirPortalIntegrado;
-  W.thiaAbrirDiagnosticoAutomotivoIntegrado = abrirPortalIntegrado;
+  W.thiaAbrirDiagnosticoAutomotivo = abrirPortalExternoDiagnostico;
+  W.thiaAbrirDiagnosticoAutomotivoIntegrado = diagnosticoAvisoUsoChat;
   W.thiaMostrarCredenciaisDiagnosticoIA = mostrarCredenciais;
   W.thiaCopiarDiagnosticoIA = copiarCredencial;
   W.thiaRecarregarConfigDiagnosticoIA = recarregarConfig;
   W.thiaRecarregarFrameDiagnosticoIA = recarregarFrame;
   W.thiaEntrarAutomaticoDiagnosticoIA = entrarAutomatico;
+  W.thiaDiagnosticoIAAvisoUsoChat = diagnosticoAvisoUsoChat;
+  W.thiaTestarDiagnosticoIA = testarRoboDiagnostico;
+  W.thiaAbrirDiagnosticoPortalExterno = abrirPortalExternoDiagnostico;
   W.thiaLimparConversaDiagnosticoIA = limparConversaDiagnostico;
   W.thiaRestaurarConversaDiagnosticoIA = restaurarConversaVisual;
 

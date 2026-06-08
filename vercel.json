@@ -1,8 +1,35 @@
 {
   "version": 2,
+  "outputDirectory": ".",
   "functions": {
     "api/diagnostico.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/jarvis",
+      "destination": "/jarvis.html"
+    },
+    {
+      "source": "/equipe",
+      "destination": "/equipe.html"
+    },
+    {
+      "source": "/superadmin",
+      "destination": "/superadmin.html"
+    },
+    {
+      "source": "/cliente",
+      "destination": "/cliente.html"
+    },
+    {
+      "source": "/c",
+      "destination": "/c.html"
+    },
+    {
+      "source": "/cotacao",
+      "destination": "/cotacao.html"
+    }
+  ]
 }
