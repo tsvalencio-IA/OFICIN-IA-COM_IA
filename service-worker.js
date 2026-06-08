@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'thiaguinho-20260608-orquestrador-profissional-ia-diagnostico-v1';
+const CACHE_VERSION = 'thiaguinho-20260608-sistema-completo-vercel-robo-conversa-estoque-fix';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -155,3 +155,5 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* Powered by thIAguinho Soluções Digitais */
+
+// cache bump profissional robo 2026-06-08

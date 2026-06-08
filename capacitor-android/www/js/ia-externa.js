@@ -438,7 +438,8 @@
       session_id: conv.session_id || '',
       historico: historicoParaApi(),
       history: historicoParaApi(),
-      context: montarContexto(perfil),
+      context: (perfil && typeof perfil === 'object') ? perfil : montarContexto(perfil),
+      contexto: (perfil && typeof perfil === 'object') ? perfil : montarContexto(perfil),
       credenciais: { usuario: cfg.usuario, senha: cfg.senha },
       anonKey: cfg.anonKey || '',
       supabaseAnonKey: cfg.anonKey || '',
@@ -666,65 +667,157 @@
     return false;
   }
 
+
+  function normalizarTextoBusca(v) {
+    return String(v || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function temCodigoFalha(texto) {
+    const t = String(texto || '').toUpperCase();
+    return /\bP[0-9A-F]{3,4}\b/.test(t) || /\bCODIGO\s+P?\d{3,4}\b/i.test(t) || /\bDTC\b/i.test(t);
+  }
+
+  function temSintomaDiagnostico(texto) {
+    const t = normalizarTextoBusca(texto);
+    if (temCodigoFalha(texto)) return true;
+    return /\b(falh|falhando|falha|marcha lenta|lenta|oscil|engasg|sem forca|perdendo forca|nao pega|nao partida|sem partida|aquec|superaquec|barulho|ruido|vibr|tremend|apag|morrendo|inje[cç]ao|igni[cç]ao|vela|bobina|bico|sensor|sonda|tps|iac|map|maf|obd|scanner|combustivel|partida|motor|ventoinha|radiador|bomba d'?agua|bateria|alternador|arrefecimento|diagnostico|checklist)\b/.test(t);
+  }
+
+  function ehConsultaInternaSemDiagnostico(texto) {
+    const t = normalizarTextoBusca(texto);
+    const placa = extrairPlaca(texto);
+    const somentePlaca = placa && t.replace(/[^a-z0-9]/g, '') === placa.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (somentePlaca) return true;
+    if (temSintomaDiagnostico(texto)) return false;
+    return /\b(estoque|financeiro|dre|fluxo de caixa|cliente|fornecedor|kardex|historico|histórico|ordem|ordens|o\.s|os |orcamento|orçamento|nf|nota fiscal|agenda|equipe|rh)\b/.test(t);
+  }
+
+  function deveUsarDiagnosticoExterno(texto) {
+    if (!texto) return false;
+    if (ehConsultaInternaSemDiagnostico(texto)) return false;
+    return temSintomaDiagnostico(texto);
+  }
+
+  function resumirContextoParaRobo(ctx) {
+    try {
+      const partes = [];
+      if (ctx && ctx.oficina) {
+        const nome = ctx.oficina.nome || ctx.oficina.razaoSocial || ctx.oficina.fantasia || '';
+        if (nome) partes.push('Oficina: ' + nome);
+      }
+      if (ctx && ctx.historicoPlaca && ctx.historicoPlaca.registros && ctx.historicoPlaca.registros.length) {
+        partes.push('Histórico interno da placa ' + ctx.historicoPlaca.placa + ':');
+        ctx.historicoPlaca.registros.slice(0, 3).forEach(function (r, i) {
+          partes.push(
+            '- O.S. ' + (r.numero || r.id || '?') +
+            ' | veículo: ' + (r.veiculo || r.modelo || '') +
+            ' | cliente: ' + (r.cliente || r.clienteNome || '') +
+            ' | status: ' + (r.status || '') +
+            ' | relato/diagnóstico: ' + (r.relato || r.diagnostico || r.defeito || r.obs || '')
+          );
+        });
+      }
+      return partes.join('\n');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  async function montarContextoDiagnosticoProfissional(pergunta, perfil) {
+    const contexto = montarContexto(perfil);
+    const historicoPlaca = await buscarHistoricoPlaca(pergunta);
+    if (historicoPlaca) contexto.historicoPlaca = historicoPlaca;
+    contexto.perguntaOriginal = pergunta;
+    contexto.instrucao = 'Responder como especialista em diagnóstico automotivo. Usar o histórico interno apenas como contexto, sem recusar a pergunta.';
+    contexto.resumoTexto = resumirContextoParaRobo(contexto);
+    return contexto;
+  }
+
+
   async function chamarIA(inputId, perfil) {
     const input = D.getElementById(inputId || 'iaInput');
     const message = txt(input?.value);
     if (!message) return;
     if (input) input.value = '';
 
-    const cfg = await carregarConfigTenant();
+    const usarRobo = deveUsarDiagnosticoExterno(message);
 
-    if (!cfg.moduloLiberado || !cfg.ativo) {
+    // Consulta interna pura: mantém o Jarvis original buscando base da oficina.
+    if (!usarRobo) {
       if (typeof original.thiaIAAsk === 'function') {
         if (input) input.value = message;
         return original.thiaIAAsk(inputId || 'iaInput', perfil);
       }
       addUser(message);
-      addBot('IA Diagnóstico bloqueada para este tenant. IA local indisponível.');
+      addBot('Preciso de um sintoma, código de falha ou placa com problema para acionar a IA Diagnóstico. Para dados internos, informe placa, estoque, cliente, O.S. ou financeiro.');
       return;
     }
 
-    if (cfg.usarApiReal || cfg.endpoint) {
-      addUser(message);
-      const lid = addBot('<span class="j-spinner"></span> Consultando IA Diagnóstico Automotivo real...');
-      try {
-        const resultado = cfg.endpoint ? await perguntarEndpoint(message, perfil) : await perguntarSupabaseDiagnostico(message, perfil);
-        const answer = typeof resultado === 'object' ? (resultado.resposta || resultado.answer || resultado.texto || '') : resultado;
-        if (resultado && typeof resultado === 'object' && (resultado.session_id || resultado.sessionId)) salvarSessionIdConversa(resultado.session_id || resultado.sessionId);
-        W.iaHistorico = W.iaHistorico || [];
-        W.iaHistorico.push({ role: 'user', text: message });
-        W.iaHistorico.push({ role: 'model', text: answer || '' });
-        registrarMensagemConversa('user', message);
-        registrarMensagemConversa('assistant', answer || '');
-        replaceBot(lid, answer ? esc(answer).replace(/\n/g, '<br>') : 'A IA externa não retornou resposta.');
-      } catch (err) {
-        const motivo = esc(err.message || err);
-        replaceBot(lid,
-          'Não consegui consultar a IA Diagnóstico por API agora.<br>' +
-          '<small style="color:var(--muted,#94a3b8)">Motivo: ' + motivo + '</small><br><br>' +
-          'Vou manter o atendimento pelo Jarvis local e deixar o portal externo como emergência.'
-        );
-        if (typeof original.thiaIAAsk === 'function') {
-          if (input) input.value = message;
-          return original.thiaIAAsk(inputId || 'iaInput', perfil);
-        }
-      }
-      return;
-    }
+    const cfg = await carregarConfigTenant();
 
     addUser(message);
-    addBot(
-      '<b>IA Diagnóstico Automotivo liberada para este tenant.</b><br>' +
-      'Como ainda não temos endpoint/API, vou abrir o portal dentro do OFICIN-IA usando as credenciais configuradas no Superadmin.<br><br>' +
-      '<button class="btn-primary" onclick="window.thiaAbrirDiagnosticoAutomotivoIntegrado(' + JSON.stringify(message).replace(/"/g, '&quot;') + ');setTimeout(function(){window.thiaEntrarAutomaticoDiagnosticoIA&&window.thiaEntrarAutomaticoDiagnosticoIA();},900)">Abrir e entrar automático</button> ' +
-      '<button class="btn-ghost" onclick="window.thiaMostrarCredenciaisDiagnosticoIA()">Ver status</button><br><br>' +
-      '<small style="color:var(--muted,#94a3b8)">Se o fornecedor bloquear iframe ou auto-login por segurança, será necessário proxy/backend para login 100% transparente.</small>'
-    );
-    abrirPortalIntegrado(message);
 
-    if (typeof original.thiaIAAsk === 'function') {
-      if (input) input.value = message;
-      return original.thiaIAAsk(inputId || 'iaInput', perfil);
+    if (!cfg.moduloLiberado || !cfg.ativo) {
+      const lidBloq = addBot('<span class="j-spinner"></span> IA Diagnóstico não liberada para este tenant. Tentando responder com Jarvis local...');
+      if (typeof original.thiaIAAsk === 'function') {
+        replaceBot(lidBloq, 'IA Diagnóstico bloqueada para este tenant. Usei o Jarvis local para continuar.');
+        if (input) input.value = message;
+        return original.thiaIAAsk(inputId || 'iaInput', perfil);
+      }
+      replaceBot(lidBloq, 'IA Diagnóstico bloqueada para este tenant.');
+      return;
+    }
+
+    const lid = addBot('<span class="j-spinner"></span> Consultando IA Diagnóstico com contexto da oficina...');
+
+    try {
+      const contexto = await montarContextoDiagnosticoProfissional(message, perfil);
+      const endpointAntigo = cfg.endpoint;
+      if (!cfg.endpoint) cfg.endpoint = ROBO_PROXY_PADRAO;
+
+      const perguntaParaRobo = message;
+      const payloadPerfil = Object.assign({}, contexto, {
+        perfil: perfil || perfilTela(),
+        origem: 'jarvis-orquestrador',
+        contextoTexto: contexto.resumoTexto || ''
+      });
+
+      const resultado = await perguntarEndpoint(perguntaParaRobo, payloadPerfil);
+      const answer = typeof resultado === 'object'
+        ? (resultado.resposta || resultado.answer || resultado.texto || resultado.message || '')
+        : String(resultado || '');
+
+      if (resultado && typeof resultado === 'object' && (resultado.session_id || resultado.sessionId)) {
+        salvarSessionIdConversa(resultado.session_id || resultado.sessionId);
+      }
+
+      W.iaHistorico = W.iaHistorico || [];
+      W.iaHistorico.push({ role: 'user', text: message });
+      W.iaHistorico.push({ role: 'model', text: answer || '' });
+      registrarMensagemConversa('user', message);
+      registrarMensagemConversa('assistant', answer || '');
+
+      replaceBot(
+        lid,
+        answer
+          ? esc(answer).replace(/\n/g, '<br>')
+          : 'A IA Diagnóstico foi consultada, mas não retornou texto.'
+      );
+
+      cfg.endpoint = endpointAntigo || cfg.endpoint;
+    } catch (err) {
+      const motivo = esc(err && err.message ? err.message : err);
+      replaceBot(lid,
+        'Não consegui consultar o robô da IA Diagnóstico agora.<br>' +
+        '<small style="color:var(--muted,#94a3b8)">Motivo: ' + motivo + '</small><br><br>' +
+        'Vou tentar continuar com o Jarvis local.'
+      );
+      if (typeof original.thiaIAAsk === 'function') {
+        if (input) input.value = message;
+        return original.thiaIAAsk(inputId || 'iaInput', perfil);
+      }
     }
   }
 
@@ -787,432 +880,4 @@
   D.addEventListener('DOMContentLoaded', function () {
     setTimeout(function () { carregarConfigTenant(false); atualizarBarra(); restaurarConversaVisual(); }, 120);
   });
-})();
-
-
-/* ==========================================================================
- * OFICIN-IA — Orquestrador profissional IA Diagnóstico + Jarvis interno
- * Data: 2026-06-08
- *
- * Objetivo:
- *  - O chat normal do Jarvis/Equipe decide quando usar dados internos e quando chamar o robô.
- *  - Perguntas de diagnóstico automotivo vão para /api/diagnostico sem iframe.
- *  - Perguntas de base da oficina continuam usando a busca interna.
- *  - Perguntas curtas de continuação, como "código P0301", usam o contexto anterior.
- *  - Conversa é restaurada ao sair e voltar para a tela.
- *
- * Camada aditiva: não remove funções originais do sistema.
- * ========================================================================== */
-(function () {
-  'use strict';
-
-  var W = window;
-  var D = document;
-  var ORQ_FLAG = '__THIA_DIAG_ORQ_PRO_INSTALADO__';
-
-  if (W[ORQ_FLAG]) return;
-  W[ORQ_FLAG] = true;
-
-  var oldAsk = W.thiaIAAsk;
-  var oldIaPerguntar = W.iaPerguntar;
-  var oldIaEnviar = W.iaEnviar;
-
-  function txt(v) { return String(v == null ? '' : v).trim(); }
-
-  function esc(v) {
-    return String(v == null ? '' : v)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function strip(html) {
-    return String(html == null ? '' : html)
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  function getJ() {
-    return W.JARVIS || W.ThiaERP || W.appState || {};
-  }
-
-  function getTid() {
-    var J = getJ();
-    return txt(J.tid || J.tenantId || J.oficinaId || localStorage.getItem('tenantId') || localStorage.getItem('tid') || 'default');
-  }
-
-  function perfilKey(perfil) {
-    return txt(perfil || getJ().role || getJ().perfil || (location.pathname.indexOf('equipe') >= 0 ? 'equipe' : 'jarvis')) || 'jarvis';
-  }
-
-  function storageKey(perfil) {
-    return 'thia_diag_orq_pro_' + getTid() + '_' + perfilKey(perfil);
-  }
-
-  function lerEstado(perfil) {
-    try {
-      return JSON.parse(localStorage.getItem(storageKey(perfil)) || '{}') || {};
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function salvarEstado(perfil, patch) {
-    try {
-      var atual = lerEstado(perfil);
-      var novo = Object.assign({}, atual, patch || {}, { atualizadoEm: new Date().toISOString() });
-      if (Array.isArray(novo.mensagens)) novo.mensagens = novo.mensagens.slice(-40);
-      localStorage.setItem(storageKey(perfil), JSON.stringify(novo));
-      return novo;
-    } catch (_) {
-      return patch || {};
-    }
-  }
-
-  function registrar(perfil, role, text, origem) {
-    var estado = lerEstado(perfil);
-    var mensagens = Array.isArray(estado.mensagens) ? estado.mensagens : [];
-    mensagens.push({
-      role: role === 'assistant' ? 'assistant' : 'user',
-      text: txt(text),
-      origem: origem || '',
-      at: new Date().toISOString()
-    });
-    salvarEstado(perfil, { mensagens: mensagens });
-  }
-
-  function historico(perfil) {
-    var estado = lerEstado(perfil);
-    return (Array.isArray(estado.mensagens) ? estado.mensagens : [])
-      .filter(function (m) { return txt(m.text); })
-      .slice(-12)
-      .map(function (m) {
-        return {
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: txt(m.text)
-        };
-      });
-  }
-
-  function box() {
-    return D.getElementById('iaMsgs') || D.querySelector('[data-ia-msgs]') || D.querySelector('.ia-messages');
-  }
-
-  function addUser(message) {
-    if (typeof W._iaMsgUser === 'function') return W._iaMsgUser(message);
-    if (typeof W.adicionarMsgIA === 'function') return W.adicionarMsgIA('user', esc(message));
-    var c = box();
-    if (!c) return null;
-    var d = D.createElement('div');
-    d.className = 'ia-msg user';
-    d.innerHTML = esc(message).replace(/\n/g, '<br>');
-    c.appendChild(d);
-    c.scrollTop = c.scrollHeight;
-    return d.id || null;
-  }
-
-  function addBot(html) {
-    if (typeof W._iaMsgBot === 'function') return W._iaMsgBot(html);
-    if (typeof W.adicionarMsgIA === 'function') {
-      W.adicionarMsgIA('bot', html);
-      return '__legacy__';
-    }
-    var c = box();
-    if (!c) return null;
-    var id = 'ia-orq-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
-    var d = D.createElement('div');
-    d.id = id;
-    d.className = 'ia-msg bot';
-    d.innerHTML = '<strong>thIAguinho:</strong> ' + html;
-    c.appendChild(d);
-    c.scrollTop = c.scrollHeight;
-    return id;
-  }
-
-  function replaceBot(id, html) {
-    if (typeof W._iaReplace === 'function' && id && id !== '__legacy__') return W._iaReplace(id, html);
-    var c = box();
-    var el = id === '__legacy__' ? (c && c.lastElementChild) : D.getElementById(id);
-    if (el) {
-      el.innerHTML = '<strong>thIAguinho:</strong> ' + html;
-      if (c) c.scrollTop = c.scrollHeight;
-      return id;
-    }
-    return addBot(html);
-  }
-
-  function respostaLocal(pergunta, perfil) {
-    try {
-      if (typeof W.thiaResponderLocal === 'function') {
-        return W.thiaResponderLocal(pergunta, { perfil: perfilKey(perfil) });
-      }
-    } catch (e) {
-      return '';
-    }
-    return '';
-  }
-
-  function localTemDadoUtil(resp) {
-    var s = strip(resp).toLowerCase();
-    if (!s) return false;
-    if (/^preciso de mais contexto/.test(s)) return false;
-    if (/nao encontrei|não encontrei|nao ha|não há|sem dados/.test(s) && s.length < 180) return false;
-    return true;
-  }
-
-  function ehPerguntaSomentePlaca(q) {
-    var s = txt(q).toUpperCase().replace(/[^A-Z0-9]/g, '');
-    return /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(s) || /^[A-Z]{3}[0-9]{4}$/.test(s);
-  }
-
-  function temCodigoFalha(q) {
-    return /\bP\s*0?\d{3,4}\b/i.test(q) || /\bP[0-9A-F]{4}\b/i.test(q) || /\bDTC\b/i.test(q) || /\bc[oó]digo\s*(de\s*)?(falha)?\s*[PCBU]?\d+/i.test(q);
-  }
-
-  function pareceDiagnostico(q) {
-    var s = txt(q).toLowerCase();
-    if (!s) return false;
-    if (temCodigoFalha(s)) return true;
-    return /(falh|falhando|marcha lenta|lenta|sem for[cç]a|engasg|oscil|apaga|morrendo|partida|n[aã]o pega|superaque|aquec|barulho|ru[ií]do|vibra|luz no painel|inje[cç][aã]o|scanner|obd|sensor|bobina|vela|cabo|bico|combust[ií]vel|bomba|tbi|corpo de borboleta|map|maf|lambda|sonda|catalis|arrefecimento|ventoinha|radiador|alternador|bateria|arranque|diagn[oó]stico|checklist|causa|defeito|sintoma|motor|gol|palio|uno|siena|corsa|onix|hb20|fox|saveiro|strada|hilux|corolla|civic)/i.test(s);
-  }
-
-  function perguntaInternaOficina(q) {
-    var s = txt(q).toLowerCase();
-    return /(estoque|pe[cç]a|kardex|fornecedor|financeiro|dre|fluxo de caixa|cliente|agenda|nota fiscal|\bnf\b|xml|equipe|funcion[aá]rio|hist[oó]rico da placa|os da placa|ordem de servi[cç]o|o\.s\.)/i.test(s);
-  }
-
-  function deveChamarRobo(pergunta, localResp, perfil) {
-    var q = txt(pergunta);
-    var estado = lerEstado(perfil);
-    var ultimaFoiRobo = estado.ultimaOrigem === 'robo' || (estado.mensagens || []).slice(-4).some(function (m) { return m.origem === 'robo'; });
-
-    if (temCodigoFalha(q)) return true;
-    if (pareceDiagnostico(q) && !ehPerguntaSomentePlaca(q)) return true;
-
-    // Continuação curta depois de uma conversa técnica.
-    if (ultimaFoiRobo && q.length <= 80 && !perguntaInternaOficina(q)) {
-      if (!/^(ok|sim|nao|não|obrigado|valeu|v)$/i.test(q)) return true;
-    }
-
-    // Quando a busca interna pediu contexto, mas a pergunta tem cara de sintoma automotivo.
-    if (/^preciso de mais contexto/i.test(strip(localResp)) && pareceDiagnostico(q)) return true;
-
-    return false;
-  }
-
-  function montarContextoInterno(pergunta, localResp, perfil) {
-    var partes = [];
-    var estado = lerEstado(perfil);
-    var hist = (estado.mensagens || []).slice(-8).map(function (m) {
-      return (m.role === 'assistant' ? 'Assistente' : 'Usuário') + ': ' + txt(m.text).slice(0, 1000);
-    }).join('\n');
-
-    if (hist) {
-      partes.push('Histórico recente do chat OFICIN-IA:\n' + hist);
-    }
-
-    if (localTemDadoUtil(localResp)) {
-      partes.push('Dados internos encontrados no OFICIN-IA para esta pergunta:\n' + strip(localResp).slice(0, 5000));
-    }
-
-    var J = getJ();
-    partes.push('Instrução de uso: responda como assistente técnico automotivo para mecânico/oficina. Use checklist, causas prováveis, testes e próximo passo. Se houver histórico interno, considere esse histórico antes de sugerir troca de peça.');
-    partes.push('Origem: OFICIN-IA | perfil=' + perfilKey(perfil) + ' | tenant=' + getTid() + (J.user ? ' | usuario=' + (J.user.nome || J.user.email || '') : ''));
-
-    return partes.join('\n\n');
-  }
-
-  async function cfgExterna() {
-    try {
-      if (W.thiaDiagnosticoIA && typeof W.thiaDiagnosticoIA.carregarConfig === 'function') {
-        return await W.thiaDiagnosticoIA.carregarConfig();
-      }
-    } catch (_) {}
-    return { ativo: true, moduloLiberado: true, endpoint: '/api/diagnostico' };
-  }
-
-  async function chamarRobo(pergunta, localResp, perfil) {
-    var cfg = await cfgExterna();
-    var endpoint = txt(cfg.endpoint || '/api/diagnostico') || '/api/diagnostico';
-    var contextoInterno = montarContextoInterno(pergunta, localResp, perfil);
-
-    var payload = {
-      pergunta: pergunta,
-      message: pergunta,
-      context: {
-        perfil: perfilKey(perfil),
-        tenantId: getTid(),
-        contextoInterno: contextoInterno
-      },
-      contextoInterno: contextoInterno,
-      historico: historico(perfil),
-      history: historico(perfil),
-      session_id: lerEstado(perfil).session_id || '',
-      credenciais: {
-        usuario: cfg.usuario || '',
-        senha: cfg.senha || ''
-      },
-      anonKey: cfg.anonKey || '',
-      supabaseAnonKey: cfg.anonKey || ''
-    };
-
-    var res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'omit',
-      body: JSON.stringify(payload)
-    });
-
-    var data = null, text = '';
-    try { data = await res.json(); } catch (_) { try { text = await res.text(); } catch(__){} }
-
-    if (!res.ok) {
-      throw new Error((data && (data.erro || data.message || data.error)) || text || ('HTTP ' + res.status));
-    }
-
-    var resposta = (data && (data.resposta || data.answer || data.message || data.texto || data.response)) || text || '';
-    if (data && (data.session_id || data.sessionId)) salvarEstado(perfil, { session_id: data.session_id || data.sessionId });
-    return resposta;
-  }
-
-  async function perguntarProfissional(inputId, perfil) {
-    var input = D.getElementById(inputId || 'iaInput');
-    var pergunta = txt(input && input.value);
-    if (!pergunta) return;
-    if (input) input.value = '';
-
-    var perfilAtual = perfilKey(perfil);
-    var localResp = respostaLocal(pergunta, perfilAtual);
-    var chamarExterno = deveChamarRobo(pergunta, localResp, perfilAtual);
-
-    addUser(pergunta);
-    registrar(perfilAtual, 'user', pergunta, chamarExterno ? 'robo' : 'local');
-
-    if (!chamarExterno) {
-      var htmlLocal = localResp || 'Preciso de mais contexto para responder com dado verdadeiro. Informe placa, modelo, cliente, período ou módulo.';
-      addBot(htmlLocal);
-      registrar(perfilAtual, 'assistant', strip(htmlLocal), 'local');
-      salvarEstado(perfilAtual, { ultimaOrigem: 'local', ultimoContextoInterno: strip(htmlLocal).slice(0, 5000) });
-      return;
-    }
-
-    var intro = '';
-    if (localTemDadoUtil(localResp) && !/^preciso de mais contexto/i.test(strip(localResp))) {
-      intro = '<div style="margin-bottom:8px;color:var(--muted,#94a3b8);font-size:.78rem;">Cruzei com os dados internos da oficina e enviei o contexto para a IA Diagnóstico.</div>';
-    }
-
-    var lid = addBot(intro + '<span class="j-spinner"></span> Consultando IA Diagnóstico com contexto do OFICIN-IA...');
-    try {
-      var resposta = await chamarRobo(pergunta, localResp, perfilAtual);
-      var html = resposta ? esc(resposta).replace(/\n/g, '<br>') : 'A IA Diagnóstico respondeu vazio.';
-      replaceBot(lid, html);
-      registrar(perfilAtual, 'assistant', resposta || '', 'robo');
-      salvarEstado(perfilAtual, {
-        ultimaOrigem: 'robo',
-        ultimoContextoInterno: strip(localResp || '').slice(0, 5000)
-      });
-    } catch (erro) {
-      var fallback = localTemDadoUtil(localResp)
-        ? localResp
-        : 'Não consegui consultar a IA Diagnóstico agora. Para manter dado verdadeiro, informe placa, modelo, sintoma ou código de falha.';
-      replaceBot(
-        lid,
-        '<b>Não consegui consultar o robô da IA Diagnóstico.</b><br>' +
-        '<small style="color:var(--muted,#94a3b8)">Motivo: ' + esc(erro && erro.message || erro) + '</small><br><br>' +
-        fallback
-      );
-      registrar(perfilAtual, 'assistant', strip(fallback), 'fallback');
-      salvarEstado(perfilAtual, { ultimaOrigem: 'fallback' });
-    }
-  }
-
-  function restaurar(perfil) {
-    try {
-      var c = box();
-      if (!c || c.dataset.thiaOrqProRestaurado === '1') return;
-      var estado = lerEstado(perfil);
-      var msgs = (estado.mensagens || []).slice(-18);
-      if (!msgs.length) return;
-
-      c.dataset.thiaOrqProRestaurado = '1';
-      var aviso = D.createElement('div');
-      aviso.className = 'ia-msg bot thia-orq-restored';
-      aviso.innerHTML = '<strong>thIAguinho:</strong> Conversa anterior restaurada neste dispositivo.';
-      c.appendChild(aviso);
-
-      msgs.forEach(function (m) {
-        var div = D.createElement('div');
-        div.className = 'ia-msg ' + (m.role === 'assistant' ? 'bot' : 'user') + ' thia-orq-restored';
-        div.innerHTML = m.role === 'assistant'
-          ? '<strong>thIAguinho:</strong> ' + esc(m.text || '').replace(/\n/g, '<br>')
-          : esc(m.text || '').replace(/\n/g, '<br>');
-        c.appendChild(div);
-      });
-      c.scrollTop = c.scrollHeight;
-    } catch (_) {}
-  }
-
-  function limpar(perfil) {
-    try { localStorage.removeItem(storageKey(perfil)); } catch (_) {}
-    if (typeof W.toast === 'function') W.toast('Conversa técnica limpa neste dispositivo.', 'ok');
-  }
-
-  function ajustarBotoes() {
-    // Remove o fluxo visual antigo como caminho principal. Mantém portal externo apenas emergência.
-    var labels = Array.from(D.querySelectorAll('button'));
-    labels.forEach(function (btn) {
-      var t = (btn.textContent || '').trim().toLowerCase();
-      if (t === 'entrar automaticamente' || t === 'entrar na ia') {
-        btn.textContent = 'Usar IA no chat';
-        btn.onclick = function () {
-          addBot('<b>IA Diagnóstico pronta para trabalhar junto com o Jarvis.</b><br>Digite sintoma, código de falha ou placa + problema no campo abaixo e clique em PROCESSAR.');
-        };
-      }
-      if (t === 'credenciais / status') {
-        btn.textContent = 'Testar robô';
-        btn.onclick = async function () {
-          var lid = addBot('<span class="j-spinner"></span> Testando robô da IA Diagnóstico...');
-          try {
-            var r = await chamarRobo('Teste rápido: responda apenas "Robô ativo" em português.', '', perfilKey());
-            replaceBot(lid, '<b>Robô respondeu.</b><br>' + esc(r).replace(/\n/g, '<br>'));
-          } catch (e) {
-            replaceBot(lid, '<b>Robô não respondeu.</b><br><small style="color:var(--muted,#94a3b8)">' + esc(e.message || e) + '</small>');
-          }
-        };
-      }
-    });
-  }
-
-  W.thiaIAAsk = function (inputId, perfil) { return perguntarProfissional(inputId || 'iaInput', perfil || 'jarvis'); };
-  W.iaPerguntar = function () { return perguntarProfissional('iaInput', 'jarvis'); };
-  W.iaEnviar = function () { return perguntarProfissional('iaInput', 'equipe'); };
-  W.thiaDiagnosticoPerguntarProfissional = perguntarProfissional;
-  W.thiaDiagnosticoLimparConversaProfissional = limpar;
-
-  W.thiaEntrarAutomaticoDiagnosticoIA = function () {
-    addBot('<b>O login visual foi desativado como fluxo principal.</b><br>Agora a IA trabalha pelo robô <code>/api/diagnostico</code>. Digite sua pergunta no chat e clique em PROCESSAR.');
-    return false;
-  };
-
-  D.addEventListener('DOMContentLoaded', function () {
-    setTimeout(function () {
-      restaurar(perfilKey());
-      ajustarBotoes();
-    }, 350);
-    setTimeout(ajustarBotoes, 1300);
-    setTimeout(ajustarBotoes, 3000);
-  });
-
-  console.log('[OFICIN-IA] Orquestrador profissional IA Diagnóstico instalado.');
 })();

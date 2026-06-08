@@ -42,11 +42,24 @@ function montarPerguntaComContexto(body) {
   if (!pergunta) throw new Error("Pergunta vazia.");
 
   const contexto = body.contexto || body.context || {};
-  const partes = [pergunta];
+  const partes = [];
 
-  if (contexto && Object.keys(contexto).length) {
-    partes.push("\n\nContexto vindo do OFICIN-IA:");
-    partes.push(JSON.stringify(contexto, null, 2));
+  partes.push("Atue como especialista em diagnóstico automotivo para oficina mecânica.");
+  partes.push("Responda em português do Brasil, com diagnóstico organizado, possíveis causas, checklist de testes e próximo passo.");
+  partes.push("Não recuse a pergunta se houver sintoma, código de falha ou problema de veículo.");
+  partes.push("");
+  partes.push("Problema informado pelo mecânico:");
+  partes.push(pergunta);
+
+  const contextoTexto = contexto.contextoTexto || contexto.resumoTexto || "";
+  if (contextoTexto) {
+    partes.push("");
+    partes.push("Contexto interno do OFICIN-IA:");
+    partes.push(String(contextoTexto));
+  } else if (contexto && contexto.historicoPlaca && contexto.historicoPlaca.registros) {
+    partes.push("");
+    partes.push("Histórico interno do veículo:");
+    partes.push(JSON.stringify(contexto.historicoPlaca, null, 2));
   }
 
   return partes.join("\n");
@@ -192,16 +205,16 @@ function parseSseDiagnosticChat(text) {
 async function chamarDiagnosticChat(token, anonKey, perguntaComContexto, historico = []) {
   const mensagens = [];
 
+  mensagens.push({ role: "assistant", content: "welcome" });
+
   if (Array.isArray(historico) && historico.length) {
-    for (const item of historico.slice(-12)) {
+    for (const item of historico.slice(-8)) {
       const role = item.role === "assistant" || item.role === "user" ? item.role : "user";
       const content = String(item.content || item.text || item.message || "").trim();
-      if (content) mensagens.push({ role, content });
+      if (!content) continue;
+      if (/Preciso de mais contexto|Sou especialista apenas|IA Diagnóstico pronta|Sistema operacional/i.test(content)) continue;
+      mensagens.push({ role, content });
     }
-  }
-
-  if (!mensagens.length) {
-    mensagens.push({ role: "assistant", content: "welcome" });
   }
 
   mensagens.push({ role: "user", content: perguntaComContexto });
@@ -236,7 +249,7 @@ async function chamarDiagnosticChat(token, anonKey, perguntaComContexto, histori
   };
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method === "OPTIONS") {
     return sendJson(req, res, 200, { ok: true });
   }
@@ -291,3 +304,6 @@ export default async function handler(req, res) {
     });
   }
 }
+
+
+module.exports = handler;
