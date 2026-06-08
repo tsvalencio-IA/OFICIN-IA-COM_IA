@@ -1,3 +1,4 @@
+// cache-bust semiframe-robo2 2026-06-08
 /**
  * thIAguinho ERP — Service Worker
  *
@@ -12,7 +13,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'thiaguinho-20260608-robo-sem-iframe-conversa-fix-v2';
+const CACHE_VERSION = 'thiaguinho-20260608-sistema-completo-vercel-robo-conversa-estoque-fix';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
