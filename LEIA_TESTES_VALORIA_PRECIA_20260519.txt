@@ -1,0 +1,66 @@
+TESTES E USO - OFICIN-IA + PREC_IA / VALORIA
+
+BASES OFICIAIS
+- OFICIN-IA: https://tsvalencio-ia.github.io/OFICIN-IA/
+- Prec_IA / ValorIA: https://tsvalencio-ia.github.io/Prec_IA/
+
+1) CONFIGURAR TENANT NO SUPERADMIN
+- Abrir superadmin.html.
+- Editar a oficina.
+- Em Integracao ValorIA - Cotacao por Robo:
+  - Marcar "Ativar ValorIA nesta oficina".
+  - Tenant no ValorIA: usar o mesmo slug publico da oficina, por exemplo tiao-motos.
+  - URL publica do fornecedor: https://tsvalencio-ia.github.io/Prec_IA/fornecedor.html
+  - Colar o Firebase Config do ValorIA com databaseURL.
+  - Informar e-mails admins do tenant. Estes e-mails sao liberados tambem no Prec_IA.
+- Salvar sem fechar ou salvar e continuar.
+
+2) USAR NO JARVIS / O.S.
+- Abrir uma O.S. com pecas para cotar.
+- Na area de cotacao de pecas, selecionar uma ou mais pecas.
+- Clicar para gerar cotacao dos fornecedores.
+- Se o ValorIA estiver ativo, o sistema:
+  - cria a cotacao normal na O.S.;
+  - cria a mesma cotacao no Prec_IA usando o mesmo cotacaoId;
+  - grava dados do veiculo, itens, O.S., tenant e fornecedores;
+  - coloca mensagens na fila do robo;
+  - troca os links exibidos para os links publicos do Prec_IA.
+- Usar "LINKS VALORIA" para ver/copiar/abrir os links Prec_IA ja vinculados a O.S.
+- Usar "SINCRONIZAR VALORIA" para buscar respostas do Prec_IA e trazer para a cotacao da O.S.
+
+3) TESTE REAL DO VENDEDOR / FORNECEDOR
+- Depois de gerar a cotacao, copiar um link exibido como Prec_IA/ValorIA.
+- Abrir em aba anonima ou celular.
+- Confirmar que abre em:
+  https://tsvalencio-ia.github.io/Prec_IA/fornecedor.html?t=TENANT&q=COTACAO&s=FORNECEDOR
+- Preencher preco, marca, codigo e prazo.
+- Voltar ao Jarvis e clicar "SINCRONIZAR VALORIA".
+- Confirmar que a resposta entrou como opcao da peca na O.S.
+
+4) INSTALAR E USAR O VALORIA
+- Subir a pasta 01_SUBIR_NO_GITHUB do pacote ValorIA no repositorio Prec_IA.
+- No Firebase Realtime Database do ValorIA, publicar as regras da pasta 03_FIREBASE_REGRAS_COPIAR.
+- Acessar https://tsvalencio-ia.github.io/Prec_IA/
+- Entrar com e-mail admin liberado pelo Superadmin da OFICIN-IA.
+- Se for primeiro acesso, cadastrar senha no proprio ValorIA.
+- Cadastrar fornecedores ou usar os fornecedores enviados pela OFICIN-IA.
+- O robo do computador fica na pasta 02_PC_CLIENTE_ROBO:
+  - rodar INSTALAR_E_ABRIR_ROBO_VALORIA.bat ou ABRIR_PAINEL_ROBO.bat;
+  - escanear o QR Code do WhatsApp;
+  - manter o computador ligado para enviar a fila whatsappQueue.
+
+5) TESTE DOS PORTAIS PUBLICOS DO CLIENTE
+- Abrir cliente.html ou clienteOficial.html com tenant/login.
+- Deve aparecer a barra inferior:
+  - Abrir no navegador;
+  - Instalar APK.
+- No app Android, se o link publico travar dentro do WebView, tocar "Abrir no navegador".
+- "Instalar APK" abre a ultima Release do repositorio OFICIN-IA. Para download direto, publique o APK como asset da Release.
+
+6) DEVTOOLS F12
+- Em cada painel, abrir F12 > Console.
+- Colar o script correspondente em scripts/devtools.
+- Para massa de teste, usar GERAR_TENANT_TESTE_300_FLUXO.js somente em tenant de teste e confirmar GERAR 300.
+
+OBSERVACAO IMPORTANTE
+O sistema agora reduz a duplicidade: quando ValorIA esta ativo, o link que o vendedor recebe pelo fluxo da O.S. passa a ser o link Prec_IA, mas a cotacao continua vinculada na O.S. pelo mesmo cotacaoId. Se o ValorIA falhar ou nao estiver configurado, o fluxo antigo da OFICIN-IA continua funcionando como contingencia.

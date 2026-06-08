@@ -1,0 +1,64 @@
+INTEGRAÇÃO VALORIA + thIAguinho SaaS - O.S.
+
+Objetivo
+- O SaaS continua salvando a cotação na O.S. como já fazia.
+- Quando a oficina tiver ValorIA ativo, o Jarvis também publica a cotação no Realtime Database do ValorIA e coloca os fornecedores na fila do robô WhatsApp.
+- As respostas do robô ou do formulário do fornecedor podem ser sincronizadas de volta para a O.S. pelo botão "SINCRONIZAR VALORIA".
+
+Arquivos alterados
+- jarvis.html: carrega Firebase Realtime Database e js/valoria-integracao.js.
+- js/cotacoes.js: chama o gancho opcional do ValorIA após salvar a cotação normal da O.S.
+- js/valoria-integracao.js: ponte SaaS -> ValorIA -> O.S.
+- service-worker.js: cache atualizado para carregar o novo arquivo.
+- capacitor-android/www: arquivos sincronizados para APK/PWA.
+
+Configuração por tenant
+Pelo Superadmin, abra a oficina e preencha o bloco "INTEGRAÇÃO VALORIA - COTAÇÃO POR ROBÔ".
+Também é possível gravar manualmente no documento/configuração da oficina, em J.oficina.valorIA ou J.oficina.valoriaIntegracao:
+
+{
+  "ativo": true,
+  "tenantId": "tiao-motos",
+  "legacyMode": false,
+  "publicBaseUrl": "https://SEU-USUARIO.github.io/VALORIA/fornecedor.html",
+  "firebaseConfig": {
+    "apiKey": "SUA_API_KEY",
+    "authDomain": "SEU_PROJETO.firebaseapp.com",
+    "databaseURL": "https://SEU_PROJETO-default-rtdb.firebaseio.com",
+    "projectId": "SEU_PROJETO",
+    "storageBucket": "SEU_PROJETO.firebasestorage.app",
+    "messagingSenderId": "000000000000",
+    "appId": "1:000000000000:web:xxxx"
+  }
+}
+
+Modo legado do ValorIA
+Se o robô ValorIA estiver usando robo-config.json com "legacyMode": true, configure:
+
+{
+  "ativo": true,
+  "tenantId": "legacy_root",
+  "legacyMode": true,
+  "publicBaseUrl": "https://SEU-USUARIO.github.io/VALORIA/fornecedor.html",
+  "firebaseConfig": { "...": "..." }
+}
+
+Fluxo real esperado
+1. Jarvis abre a O.S. e envia cotação das peças para fornecedores.
+2. O SaaS grava:
+   - cotacoes_pecas
+   - cotacoes_publicas
+   - ordens_servico/{osId}.cotacoesPecas
+3. Se ValorIA estiver ativo, grava também no Realtime Database:
+   - tenants/{tenantId}/quotes/{quoteId}, ou quotes/{quoteId} no modo legado
+   - publicQuotes/{tenantId}/{quoteId}, ou publicCotacoes/{quoteId} no modo legado
+   - tenants/{tenantId}/whatsappQueue/{queueId}, ou whatsappQueue/{queueId} no modo legado
+4. O robô ValorIA envia WhatsApp e grava respostas em:
+   - tenants/{tenantId}/quotes/{quoteId}/responses/{supplierId}/{itemId}, ou quotes/respostas no modo legado
+5. No Jarvis, clicar em "SINCRONIZAR VALORIA" dentro da cotação da O.S. para anexar as respostas como opções de compra da O.S.
+
+Regra de segurança
+- Sem "ativo": true, nada é enviado ao ValorIA.
+- Sem WhatsApp cadastrado no fornecedor, o ValorIA publica a cotação, mas não cria fila para esse fornecedor.
+- O link público do fornecedor não recebe preços internos nem lista de fornecedores.
+- A integração não substitui o envio manual; ela acrescenta a fila do robô e mantém o fluxo antigo como contingência.
