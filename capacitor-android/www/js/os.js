@@ -1047,7 +1047,7 @@ window.renderKanban = function() {
       const prefixoFmt = esc(ident.prefixo || '');
       const modeloFmt = esc(modeloVeiculoOS(os, v));
       const prismaAtual = String(os.prisma || os.numeroPrisma || '').trim();
-      const prismaFmt = prismaAtual && st !== 'Entregue'
+      const prismaFmt = prismaAtual && s !== 'Entregue'
         ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;font-family:var(--fm);font-size:.58rem;color:#111;background:var(--warn);border-radius:999px;padding:2px 7px;font-weight:900;letter-spacing:.8px;">PRISMA ${esc(prismaAtual)}</div>`
         : '';
       const UOS = window.JarvisOSUtils || window.JOS || {};
