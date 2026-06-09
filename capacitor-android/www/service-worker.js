@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-v20260609-jarvis-dados-precisos';
+const CACHE_VERSION = 'oficinia-20260609-import-pdf-prisma-jarvis-os-v1';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

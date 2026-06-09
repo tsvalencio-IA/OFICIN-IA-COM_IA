@@ -1012,7 +1012,7 @@ window.renderKanban = function() {
     
     const identBusca = identidadeVeiculoOS(o, v);
     const modeloBusca = modeloVeiculoOS(o, v).toLowerCase();
-    if (busca && !(v.placa||'').toLowerCase().includes(busca) && !(identBusca.prefixo||'').toLowerCase().includes(busca) && !modeloBusca.includes(busca) && !(c.nome||'').toLowerCase().includes(busca) && !(o.placa||'').toLowerCase().includes(busca) && !(o.prisma||o.numeroPrisma||'').toString().toLowerCase().includes(busca)) return;
+    if (busca && !(v.placa||'').toLowerCase().includes(busca) && !(identBusca.prefixo||'').toLowerCase().includes(busca) && !modeloBusca.includes(busca) && !(c.nome||'').toLowerCase().includes(busca) && !(o.placa||'').toLowerCase().includes(busca) && !String(o.prisma || o.numeroPrisma || '').toLowerCase().includes(busca)) return;
     if (filtroNicho && v.tipo !== filtroNicho) return;
     if (st === 'Entregue' && buscaEntregues) {
       const txtEntregue = [identBusca.placa, identBusca.prefixo, c.nome, o.cliente, o.desc, o.finalizacaoLabel, o.finalizacaoOS, o.entreguePara]
@@ -1045,8 +1045,11 @@ window.renderKanban = function() {
       const ident = identidadeVeiculoOS(os, v);
       const placaFmt = esc(ident.placa || 'S/PLACA');
       const prefixoFmt = esc(ident.prefixo || '');
-      const prismaFmt = esc(os.prisma || os.numeroPrisma || '');
       const modeloFmt = esc(modeloVeiculoOS(os, v));
+      const prismaAtual = String(os.prisma || os.numeroPrisma || '').trim();
+      const prismaFmt = prismaAtual && st !== 'Entregue'
+        ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;font-family:var(--fm);font-size:.58rem;color:#111;background:var(--warn);border-radius:999px;padding:2px 7px;font-weight:900;letter-spacing:.8px;">PRISMA ${esc(prismaAtual)}</div>`
+        : '';
       const UOS = window.JarvisOSUtils || window.JOS || {};
       const resumoValores = UOS.getBudgetSummary
         ? UOS.getBudgetSummary(os, c, J.financeiro)
@@ -1082,9 +1085,9 @@ window.renderKanban = function() {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:6px;">
             <div>
               ${prefixoFmt ? `<div style="font-family:var(--fm);font-size:.58rem;color:var(--warn);letter-spacing:.8px;font-weight:800;margin-bottom:2px;">PREFIXO ${prefixoFmt}</div>` : ''}
-              ${prismaFmt ? `<div style="font-family:var(--fm);font-size:.58rem;color:var(--cyan);letter-spacing:.8px;font-weight:800;margin-bottom:2px;">PRISMA ${prismaFmt}</div>` : ''}
               <div class="k-placa" style="color:${cor};margin:0;font-size:1rem;">${placaFmt}</div>
               ${modeloFmt ? `<div class="k-modelo" title="${modeloFmt}" style="font-family:var(--fm);font-size:.62rem;color:var(--muted2);letter-spacing:.45px;font-weight:700;margin-top:2px;max-width:126px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${modeloFmt}</div>` : ''}
+              ${prismaFmt}
             </div>
             ${btnExcluir}
         </div>
@@ -1154,6 +1157,16 @@ window.moverStatusOS = async function(id, novoStatus) {
         updateStatus.timeline = tlStatus;
     }
     if (finalizacaoOS) {
+        const prismaParaLiberar = String(osAntes?.prisma || osAntes?.numeroPrisma || '').trim();
+        if (prismaParaLiberar) {
+            updateStatus.prismaHistorico = osAntes?.prismaHistorico || osAntes?.numeroPrismaHistorico || prismaParaLiberar;
+            updateStatus.numeroPrismaHistorico = osAntes?.numeroPrismaHistorico || osAntes?.prismaHistorico || prismaParaLiberar;
+            updateStatus.prismaLiberado = true;
+            updateStatus.prismaLiberadoEm = new Date().toISOString();
+            updateStatus.prismaLiberadoPor = J.nome || 'Gestor';
+            updateStatus.prisma = '';
+            updateStatus.numeroPrisma = '';
+        }
         updateStatus.finalizacaoOS = finalizacaoOS.tipo;
         updateStatus.finalizacaoLabel = finalizacaoOS.label;
         updateStatus.finalizacaoMotivo = motivoStatus;
@@ -2539,6 +2552,7 @@ window.checkPgtoOS = function() {
 
 window.salvarOS = async function() {
   const osId = $v('osId');
+  const prismaInformadoOS = ($v('osPrisma') || '').trim();
   if ($('osPlaca') && !$v('osPlaca')) { window.toast('⚠ Preencha a Placa', 'warn'); return; }
   if ($('osCliente') && $('osVeiculo') && !$v('osCliente') && !$v('osVeiculo')) { window.toast('⚠ Selecione cliente e veículo', 'warn'); return; }
 
@@ -2713,7 +2727,6 @@ window.salvarOS = async function() {
   if ($v('osMec')) payload.mecId = $v('osMec');
   if ($v('osData')) payload.data = $v('osData');
   if ($v('osKm')) payload.km = $v('osKm');
-  if ($v('osPrisma')) { payload.prisma = $v('osPrisma'); payload.numeroPrisma = $v('osPrisma'); }
   if ($v('osEntregueA')) payload.entreguePara = $v('osEntregueA');
   if (payload.status === 'Entregue' && !payload.entreguePara) {
     const retiradoPor = solicitarRetiradaOS(_oldOSPreservar || payload);
@@ -4972,6 +4985,282 @@ window.buscarHistoricoOS = function(opts = {}) {
 
   el.innerHTML = `<div style="font-family:var(--fm);font-size:0.65rem;color:var(--muted);margin-bottom:6px;">${hits.length} OS encontrada(s)</div>${html}`;
 };
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IMPORTAÇÃO DE ORÇAMENTO PDF — padrão S.O.S. VALÊNCIO / thIAguinho
+// Acrescenta a função ao botão já existente dentro da O.S.
+// Não altera importação Cília, não altera planilhas existentes e não remove lógica.
+// ─────────────────────────────────────────────────────────────────────────────
+async function _orcamentoOSGarantirPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = res;
+    s.onerror = () => rej(new Error('Não foi possível carregar pdf.js para ler o PDF.'));
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  return window.pdfjsLib;
+}
+
+function _orcamentoOSMoney(v) {
+  return numBR(String(v || '').replace(/R\$/gi, '').trim());
+}
+
+function _orcamentoOSLineClean(v) {
+  return String(v || '').replace(/\s+/g, ' ').trim();
+}
+
+function _orcamentoOSBetween(linhas, iniRx, fimRx) {
+  const out = [];
+  let on = false;
+  for (const linha of linhas || []) {
+    if (!on && iniRx.test(linha)) { on = true; continue; }
+    if (on && fimRx.test(linha)) break;
+    if (on) out.push(linha);
+  }
+  return out;
+}
+
+function _orcamentoOSParsePecas(linhas) {
+  const pecas = [];
+  const area = _orcamentoOSBetween(
+    linhas,
+    /PE[ÇC]AS\s*\/\s*MATERIAIS/i,
+    /(Total\s+servi[çc]os|TOTAL\s+GERAL|Powered\s+by)/i
+  );
+  for (const raw of area) {
+    const linha = _orcamentoOSLineClean(raw);
+    if (!linha || /^C[oó]d\./i.test(linha) || /^Descri/i.test(linha) || /^Total/i.test(linha)) continue;
+    const m = linha.match(/^(.+?)\s+(\d+(?:[.,]\d+)?)\s+R\$\s*([\d.,]+)\s+([\d.,]+)%\s+R\$\s*([\d.,]+)/i);
+    if (!m) continue;
+    const left = _orcamentoOSLineClean(m[1]);
+    const firstSpace = left.indexOf(' ');
+    let codigo = firstSpace > -1 ? left.slice(0, firstSpace).trim() : '';
+    let desc = firstSpace > -1 ? left.slice(firstSpace + 1).trim() : left;
+    if (codigo === '-' || codigo === '–' || codigo === '—') codigo = '';
+    desc = desc.replace(/\s{2,}/g, ' ').trim();
+    if (!desc || /^-+$/.test(desc)) continue;
+    pecas.push({
+      codigo,
+      desc,
+      qtd: _orcamentoOSMoney(m[2]) || 1,
+      venda: _orcamentoOSMoney(m[3]),
+      descPct: _orcamentoOSMoney(m[4]),
+      totalImportado: _orcamentoOSMoney(m[5]),
+      avulsa: true,
+      origem: 'import_pdf_orcamento_sos'
+    });
+  }
+  return pecas;
+}
+
+function _orcamentoOSParseServicos(linhas) {
+  const servicos = [];
+  const area = _orcamentoOSBetween(
+    linhas,
+    /SERVI[ÇC]OS\s*\/\s*M[ÃA]O\s+DE\s+OBRA/i,
+    /PE[ÇC]AS\s*\/\s*MATERIAIS/i
+  );
+  for (const raw of area) {
+    const linha = _orcamentoOSLineClean(raw);
+    if (!linha || /^C[oó]d\./i.test(linha) || /Descri[çc][aã]o\s+do\s+servi[çc]o/i.test(linha)) continue;
+    const m = linha.match(/^(\S+)\s+(.+?)\s+(.+?)\s+(\d+(?:[.,]\d+)?)\s+R?\$?\s*([\d.,]+)\s+([\d.,]+)%\s+R\$\s*([\d.,]+)$/i);
+    if (m) {
+      servicos.push({
+        codigoTabela: m[1] === '-' ? '' : m[1],
+        sistemaTabela: _orcamentoOSLineClean(m[2]),
+        desc: _orcamentoOSLineClean(m[3]),
+        tempo: _orcamentoOSMoney(m[4]),
+        valorHora: _orcamentoOSMoney(m[5]),
+        valor: _orcamentoOSMoney(m[7]),
+        valorFinal: _orcamentoOSMoney(m[7]),
+        origem: 'import_pdf_orcamento_sos'
+      });
+      continue;
+    }
+    const simples = linha.match(/^(.+?)\s+R\$\s*([\d.,]+)$/i);
+    if (simples && !/Total/i.test(linha)) {
+      servicos.push({
+        desc: _orcamentoOSLineClean(simples[1].replace(/^-+\s*/, '')),
+        valor: _orcamentoOSMoney(simples[2]),
+        valorFinal: _orcamentoOSMoney(simples[2]),
+        origem: 'import_pdf_orcamento_sos'
+      });
+    }
+  }
+  return servicos.filter(s => s.desc);
+}
+
+function _orcamentoOSParseCampos(linhas) {
+  const texto = (linhas || []).join('\n');
+  const campos = {};
+  const getInline = (rx) => {
+    const m = texto.match(rx);
+    return m ? _orcamentoOSLineClean(m[1] || '') : '';
+  };
+  campos.osOrigem = getInline(/\bOS\s+([A-Z0-9]{4,12})\s+Emiss/i);
+  campos.emissao = getInline(/Emiss[aã]o\s+(\d{2}\/\d{2}\/\d{4}|\d{4}-\d{2}-\d{2})/i);
+  campos.status = getInline(/\bStatus\s+([^\n]+)/i);
+  campos.defeito = _orcamentoOSBetween(linhas, /DEFEITO\s+RECLAMADO/i, /DIAGN[ÓO]STICO\s+T[ÉE]CNICO/i)
+    .filter(l => l && l !== '-' && !/Powered by/i.test(l)).join('\n').trim();
+  campos.diagnostico = _orcamentoOSBetween(linhas, /DIAGN[ÓO]STICO\s+T[ÉE]CNICO/i, /RESUMO\s+POR\s+SE[ÇC][ÃA]O/i)
+    .filter(l => l && l !== '-' && !/Powered by/i.test(l)).join('\n').trim();
+  return campos;
+}
+
+async function _orcamentoOSExtrairLinhasPDF(file) {
+  const pdfjs = await _orcamentoOSGarantirPdfJs();
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  const linhas = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    const itens = tc.items
+      .filter(it => String(it.str || '').trim())
+      .map(it => ({ text: String(it.str || '').trim(), x: Math.round(it.transform[4]), y: Math.round(it.transform[5]), page: i }));
+    const map = {};
+    itens.forEach(sp => {
+      const key = `${sp.page}:${Math.round(sp.y / 4) * 4}`;
+      (map[key] ||= []).push(sp);
+    });
+    Object.keys(map)
+      .sort((a, b) => {
+        const [pa, ya] = a.split(':').map(Number);
+        const [pb, yb] = b.split(':').map(Number);
+        return (pa - pb) || (yb - ya);
+      })
+      .forEach(k => {
+        const linha = map[k].sort((a, b) => a.x - b.x).map(s => s.text).join(' ');
+        if (_orcamentoOSLineClean(linha)) linhas.push(_orcamentoOSLineClean(linha));
+      });
+  }
+  return linhas;
+}
+
+function _orcamentoOSAplicarImportacao(parsed, fileName) {
+  const pecas = parsed.pecas || [];
+  const servicos = parsed.servicos || [];
+  const campos = parsed.campos || {};
+  if (!pecas.length && !servicos.length) {
+    window.toast?.('PDF lido, mas não encontrei peças ou serviços no padrão esperado.', 'warn');
+    return;
+  }
+
+  const temItensAtuais = !!(document.querySelector('#containerServicosOS > div') || document.querySelector('#containerPecasOS > div'));
+  const substituir = temItensAtuais
+    ? confirm(`Importação encontrou ${servicos.length} serviço(s) e ${pecas.length} peça(s).\n\nOK = substituir itens atuais da O.S.\nCancelar = acrescentar aos itens atuais.`)
+    : true;
+
+  if (substituir) {
+    if ($('containerServicosOS')) $('containerServicosOS').innerHTML = '';
+    if ($('containerPecasOS')) $('containerPecasOS').innerHTML = '';
+  }
+
+  if (campos.defeito && $('osDescricao') && (!$v('osDescricao') || confirm('Importar também o campo "Defeito reclamado" do PDF para a O.S.?'))) {
+    $('osDescricao').value = campos.defeito;
+  }
+  if (campos.diagnostico && $('osDiagnostico') && (!$v('osDiagnostico') || confirm('Importar também o campo "Diagnóstico técnico" do PDF para a O.S.?'))) {
+    $('osDiagnostico').value = campos.diagnostico;
+  }
+
+  servicos.forEach(s => {
+    if (typeof window.renderServicoOSRow === 'function') {
+      window.renderServicoOSRow({
+        desc: s.desc,
+        valor: s.valor || s.valorFinal || 0,
+        valorFinal: s.valorFinal || s.valor || 0,
+        tempo: s.tempo || 0,
+        valorHora: s.valorHora || 0,
+        codigoTabela: s.codigoTabela || '',
+        sistemaTabela: s.sistemaTabela || '',
+        origemServico: s.origem || 'import_pdf_orcamento_sos'
+      });
+    } else if (typeof window.adicionarServicoOS === 'function') {
+      window.adicionarServicoOS();
+      const row = document.querySelector('#containerServicosOS > div:last-child');
+      if (row) {
+        const desc = row.querySelector('.serv-desc');
+        const val = row.querySelector('.serv-valor');
+        const tempo = row.querySelector('.serv-tempo');
+        if (desc) desc.value = s.desc || '';
+        if (val) val.value = String(s.valor || s.valorFinal || 0).replace('.', ',');
+        if (tempo) tempo.value = s.tempo || '';
+      }
+    }
+  });
+
+  pecas.forEach(p => {
+    if (typeof window.renderPecaOSRow === 'function') {
+      window.renderPecaOSRow({
+        codigo: p.codigo || '',
+        desc: p.desc || '',
+        qtd: p.qtd || 1,
+        venda: p.venda || 0,
+        avulsa: true,
+        origemPeca: p.origem || 'import_pdf_orcamento_sos'
+      });
+    } else if (typeof window.adicionarPecaOS === 'function') {
+      window.adicionarPecaOS();
+      const row = document.querySelector('#containerPecasOS > div:last-child');
+      if (row) {
+        const desc = row.querySelector('.peca-desc-livre');
+        const qtd = row.querySelector('.peca-qtd');
+        const venda = row.querySelector('.peca-venda');
+        const codigo = row.querySelector('.peca-codigo');
+        if (desc) desc.value = p.desc || '';
+        if (qtd) qtd.value = p.qtd || 1;
+        if (venda) venda.value = String(p.venda || 0).replace('.', ',');
+        if (codigo) codigo.value = p.codigo || '';
+      }
+    }
+  });
+
+  const tlEl = $('osTimelineData');
+  if (tlEl) {
+    try {
+      const tl = JSON.parse(tlEl.value || '[]');
+      tl.push({
+        dt: new Date().toISOString(),
+        user: J.nome || 'Gestor',
+        acao: `Importou orçamento PDF (${fileName || 'arquivo'}) com ${servicos.length} serviço(s) e ${pecas.length} peça(s).`
+      });
+      tlEl.value = JSON.stringify(tl);
+      window.renderTimelineOS?.();
+    } catch (_) {}
+  }
+  window.calcOSTotal?.();
+  window.toast?.(`✓ Orçamento importado: ${servicos.length} serviço(s), ${pecas.length} peça(s). Salve a O.S. para gravar.`, 'ok');
+}
+
+window.importarOrcamentoOSArquivo = async function(input) {
+  if (!input || !input.files || !input.files.length) return;
+  const file = input.files[0];
+  input.value = '';
+  const ext = String(file.name || '').split('.').pop().toLowerCase();
+  if (ext !== 'pdf') {
+    window.toast?.('Por segurança, esta importação agora lê PDF do padrão S.O.S. VALÊNCIO. Para Cília, use o botão IMPORTAR CÍLIA.', 'warn');
+    return;
+  }
+  try {
+    window.toast?.('Lendo orçamento PDF...', 'warn');
+    const linhas = await _orcamentoOSExtrairLinhasPDF(file);
+    const parsed = {
+      campos: _orcamentoOSParseCampos(linhas),
+      servicos: _orcamentoOSParseServicos(linhas),
+      pecas: _orcamentoOSParsePecas(linhas),
+      linhas
+    };
+    _orcamentoOSAplicarImportacao(parsed, file.name);
+  } catch (err) {
+    console.error('[Importar orçamento PDF]', err);
+    window.toast?.('Erro ao importar orçamento PDF: ' + (err.message || err), 'err');
+  }
+};
+
 
 window.importarCilia = async function(input) {
   if (!input || !input.files || !input.files.length) return;

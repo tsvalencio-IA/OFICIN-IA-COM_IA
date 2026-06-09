@@ -390,6 +390,119 @@
     return partes.join(' | ');
   }
 
+
+  function valorOS(o) {
+    return num(o?.totalAprovado || o?.total || o?.valorTotal || o?.valor || o?.orcamentoTotal || 0);
+  }
+
+  function financeiroMatchesOS(ctx, f, o) {
+    if (!f || !o) return false;
+    const txtF = norm(textoFinanceiro(f));
+    const osId = norm(o.id || '');
+    const osNum = norm(o.numero || '');
+    const placa = norm(placaOS(ctx, o));
+    const cliente = norm(clienteDeOS(ctx, o)?.nome || o.cliente || '');
+    if (osId && txtF.includes(osId)) return true;
+    if (osNum && txtF.includes(osNum)) return true;
+    if (placa && txtF.includes(placa)) return true;
+    if (cliente && cliente.length >= 4 && txtF.includes(cliente)) return true;
+    return false;
+  }
+
+  function financeiroDaOS(ctx, o) {
+    return ctx.financeiro.filter(f => financeiroMatchesOS(ctx, f, o));
+  }
+
+  function resumoRecebimentoOS(ctx, o) {
+    const fins = financeiroDaOS(ctx, o);
+    const pagos = fins.filter(f => isPagoStatus(f.status));
+    const pendentes = fins.filter(f => isPendenteStatus(f.status));
+    const totalPago = pagos.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+    const totalPendente = pendentes.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+    const totalOS = valorOS(o);
+    const semRecebimento = totalOS > 0
+      ? totalPago <= 0 && totalPendente <= 0
+      : (!pagos.length && !pendentes.length);
+    return { fins, pagos, pendentes, totalPago, totalPendente, totalOS, semRecebimento };
+  }
+
+  function statusNormalizadoOS(o) {
+    return norm(o?.status || '');
+  }
+
+  function isEntregueOS(o) {
+    return /entreg|finaliz|concluid/.test(statusNormalizadoOS(o));
+  }
+
+  function isCanceladaOS(o) {
+    return /cancel|recus/.test(statusNormalizadoOS(o));
+  }
+
+  function isAbertaOS(o) {
+    return !isEntregueOS(o) && !isCanceladaOS(o);
+  }
+
+  function responderVeiculosOSOperacional(texto, q, ctx, opts) {
+    const falaOS = /\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q);
+    if (!falaOS) return null;
+    const querReceb = /receb|pago|pagas|pagos|pagamento|sem recebimento|sem pagar/.test(q);
+    const querEntregue = /entreg|fechad|finaliz|concluid/.test(q);
+    const querPatio = /patio|pátio|abert|abertas|andamento|aprovad|orcamento|orçamento|triagem|pronto/.test(q);
+    const querHoje = /\bhoje\b/.test(q);
+    let lista = ctx.os.slice();
+
+    if (querEntregue) lista = lista.filter(isEntregueOS);
+    else if (querPatio || /\bveiculos?\b/.test(q)) lista = lista.filter(isAbertaOS);
+
+    if (querReceb) {
+      lista = lista.filter(o => {
+        const r = resumoRecebimentoOS(ctx, o);
+        if (/sem recebimento|sem receber|sem pagamento|sem pagar/.test(q)) return r.semRecebimento || r.totalPendente > 0;
+        return r.fins.length || r.totalOS > 0;
+      });
+    }
+
+    if (querHoje) {
+      const hoje = hojeISO();
+      lista = lista.filter(o => String(o.data || o.createdAt || o.updatedAt || '').slice(0, 10) === hoje);
+    }
+
+    if (!querPatio && !querEntregue && !querReceb && !/\b(os|o\.s\.)\b/.test(q)) return null;
+
+    lista = lista.sort((a, b) => String(b.updatedAt || b.createdAt || b.data || '').localeCompare(String(a.updatedAt || a.createdAt || a.data || '')));
+
+    if (!lista.length) {
+      if (querReceb && querEntregue) return 'Não encontrei veículo entregue sem recebimento nos dados carregados.';
+      if (querReceb) return 'Não encontrei O.S. sem recebimento nos dados carregados.';
+      if (querEntregue) return 'Não encontrei veículo entregue/fechado nos dados carregados.';
+      return 'Não encontrei O.S. nessa condição nos dados carregados.';
+    }
+
+    const titulo = querReceb && querEntregue
+      ? 'Veículos entregues com pendência/sem recebimento'
+      : querReceb
+        ? 'O.S. com pendência/sem recebimento'
+        : querEntregue
+          ? 'Veículos entregues / O.S. fechadas'
+          : 'Veículos no pátio / O.S. abertas';
+
+    const totalValor = lista.reduce((s, o) => s + valorOS(o), 0);
+    const linhas = lista.slice(0, 30).map(o => {
+      const r = resumoRecebimentoOS(ctx, o);
+      const base = resumoOS(ctx, o, Object.assign({}, opts, { comDiagnostico: false, comValores: podeFinanceiro(opts) }));
+      const rec = podeFinanceiro(opts)
+        ? ` | recebido ${moeda(r.totalPago)} | pendente ${moeda(r.totalPendente)}`
+        : '';
+      const prisma = String(o.prisma || o.numeroPrisma || '').trim();
+      const prismaTxt = prisma && !isEntregueOS(o) ? ` | prisma ${esc(prisma)}` : '';
+      return `- ${base}${prismaTxt}${rec}`;
+    });
+
+    const cab = `<strong>${titulo} (${lista.length}):</strong>`;
+    const rod = podeFinanceiro(opts) ? `<br><br><strong>Total orçado/aprovado listado:</strong> ${moeda(totalValor)}` : '';
+    return `${cab}<br>${linhas.join('<br>')}${rod}`;
+  }
+
   function linhasExecucao(os) {
     const U = W.JOS || W.JarvisOSUtils || {};
     const itens = U.buildBudgetItems?.(os, null) || [];
@@ -575,6 +688,9 @@
 
     const respostaDadosPrecisos = responderJarvisDadosPrecisos(texto, q, ctx, opts);
     if (respostaDadosPrecisos) return aplicarComportamento(respostaDadosPrecisos);
+
+    const respostaOSOperacional = responderVeiculosOSOperacional(texto, q, ctx, opts);
+    if (respostaOSOperacional) return aplicarComportamento(respostaOSOperacional);
 
     const placa = extrairPlaca(texto);
     if (placa) {

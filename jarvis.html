@@ -1164,6 +1164,16 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <input type="text" class="j-input" id="osPrefixo" readonly placeholder="Sem prefixo" style="font-family:var(--fm);font-weight:700;letter-spacing:1px;color:var(--warn);">
       </div>
     </div>
+    <div class="form-row cols-3" id="rowPrismaOS" style="margin-top:-4px;">
+      <div class="form-group">
+        <label class="j-label">Número do Prisma</label>
+        <input type="number" class="j-input" id="osPrisma" min="1" step="1" placeholder="Ex: 1, 2, 3..." inputmode="numeric" title="Número físico do prisma usado para identificar o veículo no pátio. Ao marcar a O.S. como Entregue, o prisma fica disponível novamente.">
+      </div>
+      <div class="form-group" style="grid-column:span 2;">
+        <label class="j-label">Controle do Prisma</label>
+        <input type="text" class="j-input" id="osPrismaInfo" readonly value="Informe o número usado no pátio. Ao entregar, o prisma é liberado." style="font-family:var(--fm);font-size:.72rem;color:var(--muted);">
+      </div>
+    </div>
     <div class="form-row cols-3">
       <div class="form-group">
         <label class="j-label">Mecânico Responsável</label>
@@ -1177,13 +1187,6 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <label class="j-label">KM Entrada</label>
         <input type="number" class="j-input" id="osKm" placeholder="Ex: 45000">
       </div>
-    </div>
-    <div class="form-row cols-3">
-      <div class="form-group">
-        <label class="j-label">Número do Prisma</label>
-        <input type="text" inputmode="numeric" class="j-input" id="osPrisma" placeholder="Ex: 1, 2, 3..." autocomplete="off">
-      </div>
-      <div></div><div></div>
     </div>
     <div class="form-group">
       <label class="j-label">Defeito Reclamado / Queixa do Cliente</label>

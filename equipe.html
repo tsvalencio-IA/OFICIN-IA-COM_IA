@@ -563,6 +563,14 @@ body.equipe-page .overlay.open{display:flex!important;}
         <input type="number" class="j-input" id="osKm" placeholder="45000">
       </div>
     </div>
+    <div class="form-row c2">
+      <div class="form-group"><label class="j-label">Número do Prisma</label>
+        <input type="number" class="j-input" id="osPrisma" min="1" step="1" inputmode="numeric" placeholder="Ex: 1, 2, 3..." title="Número físico do prisma usado para localizar o veículo no pátio. Ao entregar, o prisma volta a ficar disponível.">
+      </div>
+      <div class="form-group"><label class="j-label">Controle do Prisma</label>
+        <input type="text" class="j-input" id="osPrismaInfo" readonly value="Ao entregar, o prisma é liberado." style="font-family:var(--fm);font-size:.72rem;color:var(--muted);">
+      </div>
+    </div>
     <div class="form-group"><label class="j-label">Defeito / Problema Relatado</label>
       <div class="field-voice-wrap has-textarea">
         <textarea class="j-textarea" id="osDesc" rows="3" placeholder="Descreva o problema..."></textarea>
@@ -778,27 +786,6 @@ try { centralDbEquipe = window.initCentralFirebase ? window.initCentralFirebase(
 
 // STATE
 let dbOS=[], dbClientes=[], dbVeiculos=[], dbEstoque=[], dbMsgs=[];
-
-function sincronizarBasesEquipeParaIA(){
-  try {
-    window.dbOS = dbOS;
-    window.__dbOS = dbOS;
-    window.dbClientes = dbClientes;
-    window.dbVeiculos = dbVeiculos;
-    window.dbEstoque = dbEstoque;
-    window.J = window.J || J;
-    window.J.dbOS = dbOS;
-    window.J.os = dbOS;
-    window.J.dbClientes = dbClientes;
-    window.J.clientes = dbClientes;
-    window.J.dbVeiculos = dbVeiculos;
-    window.J.veiculos = dbVeiculos;
-    window.J.dbEstoque = dbEstoque;
-    window.J.estoque = dbEstoque;
-  } catch(e) {
-    console.warn('[Equipe] Não foi possível sincronizar bases para IA:', e);
-  }
-}
 
 function roleEquipeAtual(){
   return String(J.role || '').toLowerCase();
@@ -1213,10 +1200,6 @@ $('iaInput')?.addEventListener('keydown', e => {
 // BLINDAGEM DA IA: REMOÇÃO DO GOOGLE SEARCH E FILTRO CIRÚRGICO
 // ═══════════════════════════════════════════════════════════════
 async function iaEnviar() {
-  if (window.thiaDiagnosticoIA && typeof window.thiaIAAsk === 'function' && !window.__THIA_EQUIPE_IA_LOCAL_LOCK__) {
-    return window.thiaIAAsk('iaInput', 'equipe');
-  }
-
   const inp = $('iaInput');
   const msg = inp?.value?.trim();
   if (!msg) return;
@@ -1574,11 +1557,9 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 
-  sincronizarBasesEquipeParaIA();
   statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
   db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbOS=snap.docs.map(d=>({id:d.id,...d.data()}));
-    sincronizarBasesEquipeParaIA();
     statusEquipeDados('');
     renderKanban(); renderKPIs();
   }, err => {
@@ -1588,12 +1569,10 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   db.collection('clientes').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbClientes=snap.docs.map(d=>({id:d.id,...d.data()}));
-    sincronizarBasesEquipeParaIA();
     popularSelects();
   });
   db.collection('veiculos').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));
-    sincronizarBasesEquipeParaIA();
     popularSelects();
   });
   db.collection('estoqueItems').where('tenantId','==',J.tid).onSnapshot(snap=>{
@@ -1758,7 +1737,7 @@ function renderKanban(){
   minhasOS.forEach(o=>{
     const v = dbVeiculos.find(x=>x.id===o.veiculoId) || {placa:o.placa, tipo:o.tipoVeiculo||'carro'};
     const c = dbClientes.find(x=>x.id===o.clienteId) || {nome:o.cliente||'—'};
-    if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca)) return;
+    if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca) && !String(o.prisma||o.numeroPrisma||'').toLowerCase().includes(busca)) return;
     const st = stMap[o.status] || 'Aguardando';
     if(cols[st]){ cols[st].push({os:o,v,c}); cnts[st]++; }
   });
@@ -1772,6 +1751,8 @@ function renderKanban(){
     kEl.innerHTML=cols[s].sort((a,b)=>new Date(b.os.updatedAt||0)-new Date(a.os.updatedAt||0)).map(({os,v,c})=>{
       const qm = STATUS_NEXT[s];
       const qmBtn = qm ? `<button class="k-move-btn" onclick="quickMoveOS('${os.id}','${qm.next}',event)">${qm.label}</button>` : '';
+      const prismaAtual = String(os.prisma || os.numeroPrisma || '').trim();
+      const prismaBadge = prismaAtual && s !== 'Entregue' ? `<div style="display:inline-flex;align-items:center;gap:4px;margin:4px 0 2px;font-family:var(--fm);font-size:.56rem;color:#111;background:var(--warn);border-radius:999px;padding:2px 7px;font-weight:900;letter-spacing:.8px;">PRISMA ${prismaAtual}</div>` : '';
       const valores = `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:8px 0;">
         <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);padding:5px;border-radius:3px;"><small style="display:block;font-family:var(--fm);font-size:.47rem;color:var(--muted);">ORÇ.</small><b style="font-family:var(--fm);font-size:.58rem;color:var(--warn);">SEM VALOR</b></div>
         <div style="background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.12);padding:5px;border-radius:3px;"><small style="display:block;font-family:var(--fm);font-size:.47rem;color:var(--muted);">APROV.</small><b style="font-family:var(--fm);font-size:.58rem;color:var(--cyan);">STATUS</b></div>
@@ -1780,6 +1761,7 @@ function renderKanban(){
       return `
       <div class="k-card" style="border-left-color:${cor}" onclick="prepOS('edit','${os.id}');abrirModal('modalOS')">
         <div class="k-placa" style="color:${cor}">${v?.placa||os.placa||'S/PLACA'}</div>
+        ${prismaBadge}
         <div class="k-cli">${c?.nome||os.cliente||'—'}</div>
         <div class="k-desc">${os.desc||os.relato||'Sem descrição'}</div>
         ${valores}
@@ -1812,7 +1794,7 @@ function filtrarVeics(){
 }
 
 function prepOS(mode,id=null){
-  ['osId','osDesc','osDiag','osKm'].forEach(f=>{if($(f))$(f).value='';});
+  ['osId','osDesc','osDiag','osKm','osPrisma'].forEach(f=>{if($(f))$(f).value='';});
   $('osMO').value='0'; $('osTipo').value='carro'; $('osStatus').value='Aguardando';
   $('osData').value=new Date().toISOString().split('T')[0];
   $('containerPecas').innerHTML=''; $('containerServicos').innerHTML='';
@@ -1848,7 +1830,7 @@ function prepOS(mode,id=null){
       $('osVeiculo').value=os.veiculoId||'';
       atualizarHeaderOS(os.veiculoId||'', os.clienteId||'');
     },80);
-    $('osData').value=os.data||''; $('osKm').value=os.km||'';
+    $('osData').value=os.data||''; $('osKm').value=os.km||''; if($('osPrisma')) $('osPrisma').value=os.prisma||os.numeroPrisma||'';
     $('osDesc').value=os.desc||''; $('osDiag').value=os.diagnostico||'';
     $('osMO').value=os.maoObra||0;
     $('chkObs').value=os.chkObs||'';
@@ -2091,6 +2073,7 @@ async function salvarOS(){
   servicos.forEach(s => t += s.valor);
 
   const id = $v('osId');
+  const prismaInformadoOS = ($v('osPrisma') || '').trim();
   const funcUser = J.nome || 'Mecânico';
   let tl = [];
   let motivoTriagemEquipe = '';
@@ -2199,6 +2182,8 @@ async function salvarOS(){
   const p={
     tenantId:J.tid,tipoVeiculo:$v('osTipo'),clienteId:$v('osCliente'),veiculoId:$v('osVeiculo'),
     mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),
+    prisma: prismaInformadoOS,
+    numeroPrisma: prismaInformadoOS,
     desc:$v('osDesc'),diagnostico:$v('osDiag'),status:$v('osStatus'),
     maoObra:parseBR($v('osMO')||0),
     total: t,
@@ -2281,6 +2266,23 @@ async function salvarOS(){
     toast('⚠ Apenas o gestor/caixa pode marcar uma O.S. como ENTREGUE. Mude para "Pronto p/ Retirada" e avise o caixa.', 'err');
     if ($('osStatus')) $('osStatus').value = 'Pronto';
     return;
+  }
+
+  if (p.status === 'Entregue') {
+    const osAnteriorPrisma = id ? (dbOS.find(x => x.id === id) || {}) : {};
+    const prismaParaLiberar = String(prismaInformadoOS || osAnteriorPrisma.prisma || osAnteriorPrisma.numeroPrisma || '').trim();
+    if (prismaParaLiberar) {
+      p.prismaHistorico = osAnteriorPrisma.prismaHistorico || osAnteriorPrisma.numeroPrismaHistorico || prismaParaLiberar;
+      p.numeroPrismaHistorico = osAnteriorPrisma.numeroPrismaHistorico || osAnteriorPrisma.prismaHistorico || prismaParaLiberar;
+      p.prismaLiberado = true;
+      p.prismaLiberadoEm = new Date().toISOString();
+      p.prismaLiberadoPor = J.nome || 'Equipe';
+      p.prisma = '';
+      p.numeroPrisma = '';
+      const tlPrisma = Array.isArray(p.timeline) ? p.timeline.slice() : [];
+      tlPrisma.push({ dt: new Date().toISOString(), user: J.nome || 'Equipe', acao: `Prisma ${prismaParaLiberar} liberado automaticamente na entrega da O.S.` });
+      p.timeline = tlPrisma;
+    }
   }
 
   if(id) await db.collection('ordens_servico').doc(id).update(p);
