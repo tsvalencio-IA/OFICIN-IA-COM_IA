@@ -233,33 +233,266 @@
     return '';
   }
 
-  function montarContextoParaDiagnostico(pergunta, analise, perfil) {
-    const contexto = {
-      tenantId: getTid(),
-      perfil: perfil || (location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis'),
-      placa: analise.placa || '',
-      origem: 'OFICIN-IA'
+  function contextoKey() {
+    const tela = location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis';
+    return 'oficinia:diag:contexto:' + (getTid() || 'default') + ':' + getUid() + ':' + tela;
+  }
+
+  function normalizarPlaca(p) {
+    return String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function limparContextoAtivo() {
+    try { localStorage.removeItem(contextoKey()); } catch (_) {}
+  }
+
+  function lerContextoAtivo() {
+    try {
+      const ctx = JSON.parse(localStorage.getItem(contextoKey()) || 'null');
+      if (!ctx || !ctx.placa) return null;
+      if (Date.now() - Number(ctx.updatedAt || 0) > 12 * 60 * 60 * 1000) return null;
+      return ctx;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function salvarContextoAtivo(ctx) {
+    try {
+      if (!ctx || !ctx.placa) return null;
+      const atual = lerContextoAtivo() || {};
+      const novo = Object.assign({}, atual, ctx, {
+        placa: normalizarPlaca(ctx.placa || atual.placa),
+        updatedAt: Date.now()
+      });
+      localStorage.setItem(contextoKey(), JSON.stringify(novo));
+      return novo;
+    } catch (_) {
+      return ctx;
+    }
+  }
+
+  function encontrarOSPorPlaca(placa) {
+    const p = normalizarPlaca(placa);
+    if (!p) return null;
+    const J = getJ();
+    const lista = []
+      .concat(Array.isArray(J.os) ? J.os : [])
+      .concat(Array.isArray(W.os) ? W.os : [])
+      .filter(Boolean);
+
+    const candidatas = lista.filter(o => {
+      const op = normalizarPlaca(o.placa || o.veiculo?.placa || o.dadosVeiculo?.placa || '');
+      return op === p;
+    });
+
+    if (!candidatas.length) return null;
+
+    const aberta = candidatas.find(o => !/entregue|cancelado|finalizado|fechado/i.test(String(o.status || '')));
+    return aberta || candidatas[0];
+  }
+
+  function resumirOSParaIA(os) {
+    if (!os) return '';
+    const partes = [];
+    partes.push('O.S. ' + (os.numero || os.codigo || ('#' + String(os.id || '').slice(-6))));
+    partes.push('status: ' + (os.status || '-'));
+    partes.push('placa: ' + (os.placa || os.veiculo?.placa || '-'));
+    partes.push('veículo: ' + (os.veiculo || os.modelo || os.veiculoModelo || os.veiculo?.modelo || '-'));
+    partes.push('cliente: ' + (os.cliente || os.clienteNome || os.nomeCliente || '-'));
+    const relato = os.relato || os.defeito || os.diagnostico || os.observacoes || os.obs || os.problema || '';
+    if (relato) partes.push('relato/diagnóstico anterior: ' + relato);
+    if (Array.isArray(os.servicos) && os.servicos.length) {
+      partes.push('serviços: ' + os.servicos.slice(0, 8).map(s => s.desc || s.descricao || s.nome || s.servico || '').filter(Boolean).join('; '));
+    }
+    if (Array.isArray(os.pecas) && os.pecas.length) {
+      partes.push('peças: ' + os.pecas.slice(0, 8).map(p => p.desc || p.descricao || p.nome || p.peca || '').filter(Boolean).join('; '));
+    }
+    return partes.filter(Boolean).join(' | ');
+  }
+
+  function atualizarContextoPorPlaca(placa, extra) {
+    const p = normalizarPlaca(placa);
+    if (!p) return null;
+    const os = encontrarOSPorPlaca(p);
+    const hist = respostaLocalTexto('historico da placa ' + p, extra?.perfil || 'jarvis');
+    const ctx = {
+      placa: p,
+      osId: os?.id || '',
+      osNumero: os?.numero || os?.codigo || '',
+      veiculo: os?.veiculo || os?.modelo || os?.veiculoModelo || os?.veiculo?.modelo || '',
+      cliente: os?.cliente || os?.clienteNome || os?.nomeCliente || '',
+      status: os?.status || '',
+      historicoOficina: hist && !/preciso de mais contexto/i.test(hist) ? hist : resumirOSParaIA(os),
+      origem: extra?.origem || 'jarvis',
+      fixado: true
+    };
+    return salvarContextoAtivo(ctx);
+  }
+
+  function usuarioPediuNovoContexto(texto) {
+    return /\b(novo diagnostico|novo diagnóstico|limpar contexto|trocar veiculo|trocar veículo|zerar conversa|encerrar diagnostico|encerrar diagnóstico)\b/i.test(String(texto || ''));
+  }
+
+  function mensagemMostraContexto(ctx) {
+    if (!ctx || !ctx.placa) return '';
+    const meta = [ctx.placa, ctx.veiculo, ctx.cliente].filter(Boolean).join(' • ');
+    return meta ? 'Contexto ativo: ' + meta : 'Contexto ativo: placa ' + ctx.placa;
+  }
+
+  function montarAcoesContextoHTML(ctx) {
+    if (!ctx || !ctx.placa) return '';
+    return [
+      '<div class="ia-diag-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">',
+      "<button type=\"button\" class=\"btn-small\" onclick=\"window.thiaDiagSalvarNaOS('conversa')\">💾 Salvar conversa na O.S.</button>",
+      "<button type=\"button\" class=\"btn-small\" onclick=\"window.thiaDiagSalvarNaOS('teste')\">🧪 Registrar teste na O.S.</button>",
+      '<button type="button" class="btn-small" onclick="window.thiaDiagLimparContexto()">🧹 Limpar contexto</button>',
+      '</div>'
+    ].join('');
+  }
+
+  function ultimasMensagensParaResumo() {
+    return lerHistoricoLocal()
+      .slice(-10)
+      .map(m => (m.role === 'assistant' ? 'thIAguinho: ' : 'Usuário: ') + String(m.text || ''))
+      .join('\n');
+  }
+
+  async function salvarRegistroNaOS(tipo, textoExtra) {
+    const ctx = lerContextoAtivo();
+    const placa = ctx?.placa;
+    if (!placa) throw new Error('Não há placa/contexto ativo para salvar na O.S.');
+
+    const db = getDb();
+    if (!db || !db.collection) throw new Error('Banco de dados indisponível para salvar na O.S.');
+
+    let os = ctx.osId ? (getJ().os || []).find(x => x.id === ctx.osId) : null;
+    if (!os) os = encontrarOSPorPlaca(placa);
+    if (!os || !os.id) throw new Error('Não encontrei O.S. vinculada à placa ' + placa + '.');
+
+    const agora = new Date().toISOString();
+    const usuario = getJ().nome || getJ().user?.nome || getJ().user?.displayName || 'OFICIN-IA';
+    const registro = {
+      tipo: tipo || 'conversa',
+      placa,
+      usuario,
+      createdAt: agora,
+      origem: location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis',
+      resumo: String(textoExtra || '').trim() || ultimasMensagensParaResumo()
     };
 
-    if (analise.tipo === 'HIBRIDA' && analise.placa) {
-      const hist = respostaLocalTexto('historico da placa ' + analise.placa, perfil);
+    const registros = Array.isArray(os.iaDiagnosticoRegistros) ? os.iaDiagnosticoRegistros.slice() : [];
+    registros.push(registro);
+
+    const timeline = Array.isArray(os.timeline) ? os.timeline.slice() : [];
+    timeline.push({
+      dt: agora,
+      user: usuario,
+      acao: tipo === 'teste' ? 'Registrou resultado de teste da IA Diagnóstico.' : 'Salvou conversa/diagnóstico da IA na O.S.',
+      tipo: 'ia_diagnostico',
+      interno: true
+    });
+
+    const patch = {
+      iaDiagnosticoRegistros: registros.slice(-80),
+      ultimoDiagnosticoIA: registro.resumo.slice(0, 4000),
+      timeline,
+      updatedAt: agora
+    };
+
+    await db.collection('ordens_servico').doc(os.id).update(patch);
+
+    Object.assign(os, patch);
+    salvarContextoAtivo(Object.assign({}, ctx, { osId: os.id }));
+    return os;
+  }
+
+  W.thiaDiagSalvarNaOS = async function(tipo) {
+    try {
+      let textoExtra = '';
+      if (tipo === 'teste') {
+        textoExtra = prompt('Descreva o teste realizado e o resultado encontrado:') || '';
+        if (!txt(textoExtra)) return;
+      }
+      const os = await salvarRegistroNaOS(tipo, textoExtra);
+      const msg = tipo === 'teste'
+        ? 'Resultado de teste salvo na O.S. ' + (os.numero || os.id.slice(-6)) + '.'
+        : 'Conversa da IA salva na O.S. ' + (os.numero || os.id.slice(-6)) + '.';
+      if (W.toast) W.toast('✓ ' + msg, 'ok');
+      addBot(esc(msg), true);
+    } catch (err) {
+      const msg = 'Não consegui salvar na O.S.: ' + (err.message || err);
+      if (W.toast) W.toast(msg, 'warn');
+      addBot(esc(msg), true);
+    }
+  };
+
+  W.thiaDiagLimparContexto = function() {
+    limparContextoAtivo();
+    addBot('Contexto de veículo limpo. Informe uma nova placa ou um novo sintoma para começar outro diagnóstico.', true);
+  };
+
+  function montarContextoParaDiagnostico(pergunta, analise, perfil) {
+    const perfilTela = perfil || (location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis');
+
+    // Se veio placa + sintoma, fixa essa placa como contexto da conversa.
+    // Se veio só sintoma/código, reaproveita o último contexto ativo do veículo.
+    let contextoAtivo = null;
+    if (analise.placa) contextoAtivo = atualizarContextoPorPlaca(analise.placa, { perfil: perfilTela, origem: perfilTela });
+    if (!contextoAtivo) contextoAtivo = lerContextoAtivo();
+
+    const contexto = {
+      tenantId: getTid(),
+      perfil: perfilTela,
+      placa: analise.placa || contextoAtivo?.placa || '',
+      osId: contextoAtivo?.osId || '',
+      osNumero: contextoAtivo?.osNumero || '',
+      veiculo: contextoAtivo?.veiculo || '',
+      cliente: contextoAtivo?.cliente || '',
+      status: contextoAtivo?.status || '',
+      origem: 'OFICIN-IA',
+      contextoAtivo: contextoAtivo || null
+    };
+
+    if (contextoAtivo?.historicoOficina) {
+      contexto.historicoOficina = contextoAtivo.historicoOficina;
+    } else if (analise.tipo === 'HIBRIDA' && analise.placa) {
+      const hist = respostaLocalTexto('historico da placa ' + analise.placa, perfilTela);
       if (hist && !/preciso de mais contexto/i.test(hist)) contexto.historicoOficina = hist;
     }
 
     const normalizada = normalizarCodigoFalha(pergunta);
     const instrucao = [
-      'Você é um especialista em diagnóstico automotivo trabalhando junto com o OFICIN-IA.',
+      'Você é um especialista em diagnóstico automotivo trabalhando como auxiliar do Jarvis dentro do OFICIN-IA.',
+      'Trabalhe em conjunto com os dados internos da oficina. Não substitua o Jarvis: complemente o diagnóstico técnico.',
       'Responda em português do Brasil, de forma prática para oficina mecânica.',
-      'Organize a resposta com: possíveis causas, checklist de diagnóstico, testes recomendados, interpretação dos resultados e próximo passo.',
-      'Não peça placa se já houver informação suficiente para orientar o diagnóstico.',
+      'Organize a resposta com:',
+      '1. Hipóteses principais',
+      '2. Checklist de diagnóstico',
+      '3. Testes recomendados',
+      '4. Como interpretar os resultados',
+      '5. Próximo passo na O.S.',
+      '6. Peças/sistemas a conferir, sem afirmar troca antes do teste',
       '',
       'Problema informado pelo usuário:',
       normalizada
     ];
 
-    if (contexto.historicoOficina) {
-      instrucao.push('', 'Contexto interno da oficina:', contexto.historicoOficina);
+    if (contexto.placa) {
+      instrucao.push('', 'Contexto ativo do veículo na conversa:');
+      instrucao.push('Placa: ' + contexto.placa);
+      if (contexto.veiculo) instrucao.push('Veículo: ' + contexto.veiculo);
+      if (contexto.cliente) instrucao.push('Cliente: ' + contexto.cliente);
+      if (contexto.osNumero || contexto.osId) instrucao.push('O.S.: ' + (contexto.osNumero || contexto.osId));
+      instrucao.push('Considere esse veículo como contexto enquanto o usuário não pedir novo diagnóstico ou informar outra placa.');
     }
+
+    if (contexto.historicoOficina) {
+      instrucao.push('', 'Histórico interno da oficina/O.S. para considerar:');
+      instrucao.push(contexto.historicoOficina);
+    }
+
+    instrucao.push('', 'Regra importante: se o usuário enviar resultado de teste depois, continue o raciocínio no mesmo veículo/contexto e diga como registrar na O.S.');
 
     return {
       pergunta: instrucao.join('\n'),
@@ -286,7 +519,8 @@
         pergunta: montado.pergunta,
         contexto: montado.contexto,
         tenantId: getTid(),
-        placa: analise.placa || '',
+        placa: analise.placa || lerContextoAtivo()?.placa || '',
+        session_id: lerContextoAtivo()?.session_id || '',
         origem: 'OFICIN-IA',
         historico
       })
@@ -297,6 +531,15 @@
     if (!res.ok || !data || data.ok === false) {
       throw new Error(data?.erro || data?.message || ('Falha no robô: HTTP ' + res.status));
     }
+
+    const ctxNow = lerContextoAtivo();
+    if (data.session_id && (analise.placa || ctxNow?.placa)) {
+      salvarContextoAtivo(Object.assign({}, ctxNow || {}, {
+        placa: analise.placa || ctxNow?.placa,
+        session_id: data.session_id
+      }));
+    }
+
     return txt(data.resposta || data.answer || data.message || data.texto || data.result || '');
   }
 
@@ -306,11 +549,20 @@
     if (!message) return;
     if (input) input.value = '';
 
+    if (usuarioPediuNovoContexto(message)) {
+      addUser(message);
+      limparContextoAtivo();
+      addBot('Contexto limpo. Pode informar outra placa ou outro sintoma para começar um novo diagnóstico.', true);
+      return;
+    }
+
     const analise = analisarIntencao(message);
 
     if (analise.tipo === 'LOCAL') {
-      // Consulta interna pura: devolve para o motor original do Jarvis/Equipe.
-      // Importante: em várias telas o motor local expõe iaPerguntar(), não thiaIAAsk().
+      // Placa ou histórico puro: mantém o Jarvis local, mas fixa o contexto do veículo
+      // para a próxima pergunta técnica ("código P0301", "deu 12V", "compressão baixa", etc.).
+      if (analise.placa) atualizarContextoPorPlaca(analise.placa, { perfil: perfil || 'jarvis', origem: 'consulta_local' });
+
       if (typeof original.thiaIAAsk === 'function') {
         if (input) input.value = message;
         return original.thiaIAAsk(inputId || 'iaInput', perfil);
@@ -330,12 +582,22 @@
     }
 
     addUser(message);
-    const lid = addBot('<span class="j-spinner"></span> Consultando IA Diagnóstico com o contexto da oficina...', false);
+
+    const ctxPreview = analise.placa
+      ? atualizarContextoPorPlaca(analise.placa, { perfil: perfil || 'jarvis', origem: 'diagnostico' })
+      : lerContextoAtivo();
+
+    const avisoContexto = ctxPreview?.placa
+      ? '<br><small style="color:var(--muted2,#7A9AB8);">' + esc(mensagemMostraContexto(ctxPreview)) + '</small>'
+      : '';
+
+    const lid = addBot('<span class="j-spinner"></span> Consultando IA Diagnóstico com o contexto da oficina...' + avisoContexto, false);
 
     try {
       const resposta = await chamarRobo(message, analise, perfil);
       const final = resposta || 'A IA Diagnóstico não retornou conteúdo útil. Tente reformular o sintoma.';
-      replaceBot(lid, esc(final).replace(/\n/g, '<br>'), true);
+      const ctxFinal = lerContextoAtivo();
+      replaceBot(lid, esc(final).replace(/\n/g, '<br>') + montarAcoesContextoHTML(ctxFinal), true);
     } catch (err) {
       const local = respostaLocalTexto(message, perfil);
       const erro = 'Não consegui acionar a IA Diagnóstico agora. ' + esc(err.message || err);
@@ -370,7 +632,10 @@
   W.thiaDiagnosticoIA = {
     carregarConfig: carregarConfigTenant,
     analisarIntencao,
-    perguntar: chamarRobo
+    perguntar: chamarRobo,
+    lerContexto: lerContextoAtivo,
+    limparContexto: limparContextoAtivo,
+    salvarNaOS: salvarRegistroNaOS
   };
 
   W.thiaIAAsk = chamarIA;
