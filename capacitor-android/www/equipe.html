@@ -1703,7 +1703,7 @@ function renderKPIs(){
 // Só gestor/gerente/admin pode marcar "Entregue" (exige pagamento no caixa).
 // ============================================================
 function renderKanban(){
-  const busca=($v('searchOS')||'').toLowerCase();
+  const busca=($v('searchOS')||'').trim().toLowerCase();
   const statuses=['Aguardando','Orcamento','Aprovado','Andamento','Pronto','Entregue'];
   const cols={},cnts={};
   statuses.forEach(s=>{cols[s]=[];cnts[s]=0;});
@@ -1722,7 +1722,7 @@ function renderKanban(){
     'Aguardando':'Aguardando'
   };
 
-  const minhasOS = dbOS.filter(o => {
+  const minhasOS = (Array.isArray(dbOS) ? dbOS : []).filter(o => {
     const st = (o.status||'').toLowerCase();
     if (st === 'cancelado') return false;
     
@@ -1735,8 +1735,8 @@ function renderKanban(){
   });
 
   minhasOS.forEach(o=>{
-    const v = dbVeiculos.find(x=>x.id===o.veiculoId) || {placa:o.placa, tipo:o.tipoVeiculo||'carro'};
-    const c = dbClientes.find(x=>x.id===o.clienteId) || {nome:o.cliente||'—'};
+    const v = (Array.isArray(dbVeiculos) ? dbVeiculos : []).find(x=>x.id===o.veiculoId) || {placa:o.placa, tipo:o.tipoVeiculo||'carro'};
+    const c = (Array.isArray(dbClientes) ? dbClientes : []).find(x=>x.id===o.clienteId) || {nome:o.cliente||'—'};
     if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca) && !String(o.prisma||o.numeroPrisma||'').toLowerCase().includes(busca)) return;
     const st = stMap[o.status] || 'Aguardando';
     if(cols[st]){ cols[st].push({os:o,v,c}); cnts[st]++; }

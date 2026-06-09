@@ -997,18 +997,18 @@ window.escutarOS = function() {
 };
 
 window.renderKanban = function() {
-  const busca = ($v('searchOS') || '').toLowerCase();
-  const buscaEntregues = ($v('buscaEntreguesKanban') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const busca = ($v('searchOS') || '').trim().toLowerCase();
+  const buscaEntregues = ($v('buscaEntreguesKanban') || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   const filtroNicho = $v('filtroNichoKanban');
   const cols = {}; const cnts = {};
   KANBAN_STATUSES.forEach(s => { cols[s] = []; cnts[s] = 0; });
 
-  J.os.filter(o => (o.status || '').toLowerCase() !== 'cancelado').forEach(o => {
+  (Array.isArray(J.os) ? J.os : []).filter(o => (o.status || '').toLowerCase() !== 'cancelado').forEach(o => {
     const stRaw = o.status || 'Triagem';
     const st = STATUS_MAP_LEGACY[stRaw] || 'Triagem'; 
     
-    const v = J.veiculos.find(x => x.id === o.veiculoId) || { placa: o.placa, modelo: o.veiculo, tipo: o.tipoVeiculo };
-    const c = J.clientes.find(x => x.id === o.clienteId) || { nome: o.cliente };
+    const v = (Array.isArray(J.veiculos) ? J.veiculos : []).find(x => x.id === o.veiculoId) || { placa: o.placa, modelo: o.veiculo, tipo: o.tipoVeiculo };
+    const c = (Array.isArray(J.clientes) ? J.clientes : []).find(x => x.id === o.clienteId) || { nome: o.cliente };
     
     const identBusca = identidadeVeiculoOS(o, v);
     const modeloBusca = modeloVeiculoOS(o, v).toLowerCase();

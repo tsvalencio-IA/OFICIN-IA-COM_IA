@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260609-import-pdf-prisma-jarvis-os-v1';
+const CACHE_VERSION = 'oficinia-20260609-hotfix-patio-trim-os-ia';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

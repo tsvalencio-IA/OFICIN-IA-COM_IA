@@ -273,6 +273,11 @@
   }
 
   function responderJarvisDadosPrecisos(texto, q, ctx, opts) {
+    // Consultas operacionais de O.S./pátio devem cair no bloco próprio,
+    // para listar TODAS as O.S. da condição pedida, e não virar resumo genérico.
+    if (/\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q) && /(patio|pátio|entreg|fechad|finaliz|concluid|receb|pagamento|sem receb|sem pagar|abert|abertas|andamento|orcamento|orçamento|triagem|pronto)/.test(q)) {
+      return null;
+    }
     const notas = responderNotasDetalhadas(texto, q, ctx);
     if (notas) return notas;
     const comissoes = responderComissoesDetalhadas(texto, q, ctx, opts);
