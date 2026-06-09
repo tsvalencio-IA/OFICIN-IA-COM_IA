@@ -1,6 +1,5 @@
 // OFICIN-IA — Robô virtual para IA Diagnóstico Automotivo
-// Backend leve para Vercel.
-// Não usa iframe. Não abre navegador. Faz login Supabase e chama /functions/v1/diagnostic-chat.
+// Backend Vercel. Não usa iframe e não aceita credenciais vindas do front-end.
 
 const SUPABASE_URL = "https://luazuifvwyeabuldlvzw.supabase.co";
 const SUPABASE_ANON_KEY_PADRAO = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1YXp1aWZ2d3llYWJ1bGRsdnp3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyNjM0MjUsImV4cCI6MjA4NDgzOTQyNX0.1UxZkY5q0ousoInOZ-4kZFfWRppiGEsag-vVrzBxJ8Y";
@@ -26,15 +25,23 @@ async function readJsonBody(req) {
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString("utf8");
   if (!raw) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new Error("Body JSON inválido.");
-  }
+  try { return JSON.parse(raw); } catch { throw new Error("Body JSON inválido."); }
 }
 
 function pickPergunta(body) {
   return String(body.pergunta || body.message || body.text || body.prompt || "").trim();
+}
+
+function credenciais() {
+  const email = process.env.DIAGNOSTICO_EMAIL || "";
+  const password = process.env.DIAGNOSTICO_PASSWORD || "";
+  const anonKey = process.env.DIAGNOSTICO_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || SUPABASE_ANON_KEY_PADRAO;
+
+  if (!email || !password) {
+    throw new Error("E-mail/senha da IA Diagnóstico ausentes. Configure DIAGNOSTICO_EMAIL e DIAGNOSTICO_PASSWORD na Vercel.");
+  }
+
+  return { email, password, anonKey };
 }
 
 function montarPerguntaComContexto(body) {
@@ -42,76 +49,34 @@ function montarPerguntaComContexto(body) {
   if (!pergunta) throw new Error("Pergunta vazia.");
 
   const contexto = body.contexto || body.context || {};
-  const partes = [];
+  const partes = [
+    "Você é um especialista em diagnóstico automotivo trabalhando junto com o OFICIN-IA.",
+    "Responda em português do Brasil, com foco prático para oficina mecânica.",
+    "Organize com: possíveis causas, checklist de diagnóstico, testes recomendados, interpretação dos resultados e próximo passo.",
+    "Não peça placa se o usuário já informou um sintoma ou código de falha suficiente para orientar o diagnóstico.",
+    "",
+    "Pergunta/contexto enviado pelo OFICIN-IA:",
+    pergunta
+  ];
 
-  partes.push("Atue como especialista em diagnóstico automotivo para oficina mecânica.");
-  partes.push("Responda em português do Brasil, com diagnóstico organizado, possíveis causas, checklist de testes e próximo passo.");
-  partes.push("Não recuse a pergunta se houver sintoma, código de falha ou problema de veículo.");
-  partes.push("");
-  partes.push("Problema informado pelo mecânico:");
-  partes.push(pergunta);
-
-  const contextoTexto = contexto.contextoTexto || contexto.resumoTexto || "";
-  if (contextoTexto) {
-    partes.push("");
-    partes.push("Contexto interno do OFICIN-IA:");
-    partes.push(String(contextoTexto));
-  } else if (contexto && contexto.historicoPlaca && contexto.historicoPlaca.registros) {
-    partes.push("");
-    partes.push("Histórico interno do veículo:");
-    partes.push(JSON.stringify(contexto.historicoPlaca, null, 2));
+  if (contexto && Object.keys(contexto).length) {
+    partes.push("", "Dados internos da oficina:");
+    partes.push(JSON.stringify(contexto, null, 2));
   }
 
   return partes.join("\n");
 }
 
-function credenciais(body) {
-  const c = body.credenciais || body.credentials || {};
-
-  const email =
-    process.env.DIAGNOSTICO_EMAIL ||
-    c.usuario ||
-    c.email ||
-    body.usuario ||
-    body.email ||
-    "";
-
-  const password =
-    process.env.DIAGNOSTICO_PASSWORD ||
-    c.senha ||
-    c.password ||
-    body.senha ||
-    body.password ||
-    "";
-
-  const anonKey =
-    process.env.DIAGNOSTICO_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    body.anonKey ||
-    body.supabaseAnonKey ||
-    SUPABASE_ANON_KEY_PADRAO;
-
-  if (!email || !password) {
-    throw new Error("E-mail/senha da IA Diagnóstico ausentes. Configure na Vercel ou envie via credenciais do tenant.");
-  }
-
-  return { email, password, anonKey };
-}
-
-async function loginSupabase(body) {
-  const { email, password, anonKey } = credenciais(body);
+async function loginSupabase() {
+  const { email, password, anonKey } = credenciais();
 
   const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "apikey": anonKey
-    },
+    headers: { "Content-Type": "application/json", "apikey": anonKey },
     body: JSON.stringify({ email, password })
   });
 
   const data = await resp.json().catch(() => null);
-
   if (!resp.ok || !data?.access_token) {
     throw new Error("Falha no login Supabase da IA Diagnóstico: " + resp.status + " " + JSON.stringify(data));
   }
@@ -120,6 +85,7 @@ async function loginSupabase(body) {
 }
 
 async function criarSessao(token, anonKey, userId, titulo) {
+  if (!userId) return null;
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/diagnostic_sessions?select=*`, {
     method: "POST",
     headers: {
@@ -129,7 +95,7 @@ async function criarSessao(token, anonKey, userId, titulo) {
       "content-profile": "public",
       "content-type": "application/json",
       "prefer": "return=representation",
-      "x-client-info": "oficin-ia-robo-vercel/1.0.0"
+      "x-client-info": "oficin-ia-robo-vercel/2.0.0"
     },
     body: JSON.stringify({
       user_id: userId,
@@ -140,17 +106,12 @@ async function criarSessao(token, anonKey, userId, titulo) {
   const text = await resp.text();
   let data = null;
   try { data = JSON.parse(text); } catch { data = text; }
-
-  if (!resp.ok) {
-    throw new Error("Falha ao criar sessão: " + resp.status + " " + text);
-  }
-
+  if (!resp.ok) throw new Error("Falha ao criar sessão: " + resp.status + " " + text);
   return data;
 }
 
 async function salvarMensagem(token, anonKey, sessionId, role, content) {
-  if (!sessionId) return null;
-
+  if (!sessionId || !content) return null;
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/diagnostic_messages`, {
     method: "POST",
     headers: {
@@ -158,28 +119,20 @@ async function salvarMensagem(token, anonKey, sessionId, role, content) {
       "authorization": `Bearer ${token}`,
       "content-profile": "public",
       "content-type": "application/json",
-      "x-client-info": "oficin-ia-robo-vercel/1.0.0"
+      "x-client-info": "oficin-ia-robo-vercel/2.0.0"
     },
-    body: JSON.stringify({
-      session_id: sessionId,
-      role,
-      content,
-      images: null
-    })
+    body: JSON.stringify({ session_id: sessionId, role, content, images: null })
   });
 
-  // O app original não precisa de corpo aqui. Status 201 basta.
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    console.warn("Não consegui salvar mensagem", resp.status, text);
+    console.warn("Não consegui salvar mensagem no diagnóstico", resp.status, text);
   }
-
   return true;
 }
 
 function parseSseDiagnosticChat(text) {
   if (!text) return "";
-
   const linhas = String(text).split(/\r?\n/);
   let saida = "";
 
@@ -194,35 +147,32 @@ function parseSseDiagnosticChat(text) {
       const obj = JSON.parse(raw);
       const delta = obj?.choices?.[0]?.delta?.content;
       if (delta) saida += delta;
-    } catch {
-      // Ignora chunk que não for JSON.
-    }
+    } catch {}
   }
 
   return saida.trim();
 }
 
-async function chamarDiagnosticChat(token, anonKey, perguntaComContexto, historico = []) {
-  const mensagens = [];
+function historicoLimpo(body) {
+  const h = body.historico || body.history || [];
+  if (!Array.isArray(h)) return [];
+  return h.slice(-8).map(item => {
+    const role = item.role === "assistant" ? "assistant" : "user";
+    const content = String(item.content || item.text || item.message || "").trim();
+    return content ? { role, content } : null;
+  }).filter(Boolean);
+}
 
-  mensagens.push({ role: "assistant", content: "welcome" });
+async function chamarDiagnosticChat(token, anonKey, perguntaComContexto, body) {
+  const mensagens = historicoLimpo(body).filter(m => !/preciso de mais contexto|sou especialista apenas/i.test(m.content));
 
-  if (Array.isArray(historico) && historico.length) {
-    for (const item of historico.slice(-8)) {
-      const role = item.role === "assistant" || item.role === "user" ? item.role : "user";
-      const content = String(item.content || item.text || item.message || "").trim();
-      if (!content) continue;
-      if (/Preciso de mais contexto|Sou especialista apenas|IA Diagnóstico pronta|Sistema operacional/i.test(content)) continue;
-      mensagens.push({ role, content });
-    }
+  if (!mensagens.length || mensagens[0].role !== "assistant") {
+    mensagens.unshift({ role: "assistant", content: "welcome" });
   }
 
   mensagens.push({ role: "user", content: perguntaComContexto });
 
-  const payload = {
-    messages: mensagens,
-    language: "pt"
-  };
+  const payload = { messages: mensagens, language: "pt" };
 
   const resp = await fetch(`${SUPABASE_URL}/functions/v1/diagnostic-chat`, {
     method: "POST",
@@ -235,56 +185,35 @@ async function chamarDiagnosticChat(token, anonKey, perguntaComContexto, histori
   });
 
   const text = await resp.text();
-
-  if (!resp.ok) {
-    throw new Error("Falha no diagnostic-chat: " + resp.status + " " + text);
-  }
+  if (!resp.ok) throw new Error("Falha no diagnostic-chat: " + resp.status + " " + text);
 
   const resposta = parseSseDiagnosticChat(text) || text;
-
-  return {
-    resposta,
-    raw: text,
-    payload
-  };
+  return { resposta, payload };
 }
 
 async function handler(req, res) {
-  if (req.method === "OPTIONS") {
-    return sendJson(req, res, 200, { ok: true });
-  }
-
-  if (req.method !== "POST") {
-    return sendJson(req, res, 405, { ok: false, erro: "Use POST." });
-  }
+  if (req.method === "OPTIONS") return sendJson(req, res, 200, { ok: true });
+  if (req.method !== "POST") return sendJson(req, res, 405, { ok: false, erro: "Use POST." });
 
   try {
     const body = await readJsonBody(req);
     const perguntaOriginal = pickPergunta(body);
     const perguntaComContexto = montarPerguntaComContexto(body);
 
-    const sessao = await loginSupabase(body);
+    const sessao = await loginSupabase();
     const token = sessao.access_token;
     const anonKey = sessao.anonKey;
-    const userId = sessao.user?.id || body.user_id || body.userId || null;
+    const userId = sessao.user?.id || null;
 
     let sessionId = body.session_id || body.sessionId || null;
-
     if (!sessionId && userId) {
       const novaSessao = await criarSessao(token, anonKey, userId, perguntaOriginal);
       sessionId = novaSessao?.id || null;
     }
 
-    if (sessionId) {
-      await salvarMensagem(token, anonKey, sessionId, "user", perguntaOriginal);
-    }
+    if (sessionId) await salvarMensagem(token, anonKey, sessionId, "user", perguntaOriginal);
 
-    const resultado = await chamarDiagnosticChat(
-      token,
-      anonKey,
-      perguntaComContexto,
-      body.historico || body.history || []
-    );
+    const resultado = await chamarDiagnosticChat(token, anonKey, perguntaComContexto, body);
 
     if (sessionId && resultado.resposta) {
       await salvarMensagem(token, anonKey, sessionId, "assistant", resultado.resposta);
@@ -294,8 +223,7 @@ async function handler(req, res) {
       ok: true,
       resposta: resultado.resposta,
       session_id: sessionId,
-      provider: "appdiagnosticoautomotivo-supabase",
-      rawPayload: resultado.payload
+      provider: "appdiagnosticoautomotivo-supabase"
     });
   } catch (error) {
     return sendJson(req, res, 500, {
@@ -304,6 +232,5 @@ async function handler(req, res) {
     });
   }
 }
-
 
 module.exports = handler;
