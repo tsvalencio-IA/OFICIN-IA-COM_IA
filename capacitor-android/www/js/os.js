@@ -1538,7 +1538,7 @@ window.salvarBlobArquivoOS = salvarBlobArquivoOS;
 
 
 window.prepOS = function(mode, id = null) {
-  ['osId', 'osPlaca', 'osPlacaView', 'osPrefixo', 'osVeiculo', 'osCliente', 'osCelular', 'osCpf', 'osDiagnostico', 'osRelato', 'osDescricao', 'chkObs', 'osKm', 'osData'].forEach(f => { if ($(f)) $(f).value = ''; });
+  ['osId', 'osPlaca', 'osPlacaView', 'osPrefixo', 'osVeiculo', 'osCliente', 'osCelular', 'osCpf', 'osDiagnostico', 'osRelato', 'osDescricao', 'chkObs', 'osKm', 'osPrisma', 'osData'].forEach(f => { if ($(f)) $(f).value = ''; });
   // Checklist tri-state: limpa valor hidden + botões ativos
   ['chkPainel', 'chkPressao', 'chkCarroceria', 'chkDocumentos'].forEach(f => {
     if ($(f)) $(f).value = '';
@@ -1622,6 +1622,7 @@ window.prepOS = function(mode, id = null) {
     if ($('osDescricao')) $('osDescricao').value = o.desc || o.relato || '';
     if ($('osData')) $('osData').value = o.data || ''; 
     if ($('osKm')) $('osKm').value = o.km || '';
+    if ($('osPrisma')) $('osPrisma').value = o.prisma || o.numeroPrisma || '';
     if ($('osEntregueA')) {
       $('osEntregueA').value = o.entreguePara || '';
       const r = document.getElementById('rowEntregueA');
@@ -2710,6 +2711,7 @@ window.salvarOS = async function() {
   if ($v('osMec')) payload.mecId = $v('osMec');
   if ($v('osData')) payload.data = $v('osData');
   if ($v('osKm')) payload.km = $v('osKm');
+  if ($v('osPrisma')) { payload.prisma = $v('osPrisma'); payload.numeroPrisma = $v('osPrisma'); }
   if ($v('osEntregueA')) payload.entreguePara = $v('osEntregueA');
   if (payload.status === 'Entregue' && !payload.entreguePara) {
     const retiradoPor = solicitarRetiradaOS(_oldOSPreservar || payload);

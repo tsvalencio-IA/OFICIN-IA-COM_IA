@@ -358,6 +358,62 @@
       .join('\n');
   }
 
+  function limparTextoDiagnosticoIA(texto) {
+    return String(texto || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function montarBlocoDiagnosticoTecnicoIA(registro) {
+    const quando = new Date(registro.createdAt || Date.now()).toLocaleString('pt-BR');
+    const titulo = registro.tipo === 'teste'
+      ? 'RESULTADO DE TESTE REGISTRADO PELA IA'
+      : 'CONVERSA / DIAGNÓSTICO DA IA';
+    const resumo = limparTextoDiagnosticoIA(registro.resumo);
+    return [
+      '',
+      '--- ' + titulo + ' ---',
+      'Data: ' + quando,
+      'Usuário: ' + (registro.usuario || 'OFICIN-IA'),
+      'Origem: ' + (registro.origem || 'jarvis'),
+      resumo,
+      '--- FIM DO REGISTRO DA IA ---'
+    ].filter(Boolean).join('\n');
+  }
+
+  function anexarDiagnosticoTecnicoIA(diagnosticoAtual, registro) {
+    const atual = limparTextoDiagnosticoIA(diagnosticoAtual);
+    const bloco = montarBlocoDiagnosticoTecnicoIA(registro);
+    if (!bloco.trim()) return atual;
+    if (atual && atual.includes(bloco.slice(0, Math.min(180, bloco.length)))) return atual;
+    const novo = [atual, bloco].filter(Boolean).join('\n\n').trim();
+    return novo.length > 18000 ? novo.slice(novo.length - 18000) : novo;
+  }
+
+  function atualizarCampoDiagnosticoTecnicoAberto(osId, diagnostico) {
+    try {
+      const ids = ['osDiagnostico', 'osDiag'];
+      const osIdAtual = (D.getElementById('osId') && D.getElementById('osId').value) || '';
+      if (osIdAtual && osId && osIdAtual !== osId) return;
+      ids.forEach(id => {
+        const el = D.getElementById(id);
+        if (el && typeof diagnostico === 'string') {
+          el.value = diagnostico;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+    } catch (_) {}
+  }
+
   async function salvarRegistroNaOS(tipo, textoExtra) {
     const ctx = lerContextoAtivo();
     const placa = ctx?.placa;
@@ -393,7 +449,10 @@
       interno: true
     });
 
+    const diagnosticoAtualizado = anexarDiagnosticoTecnicoIA(os.diagnostico || os.diagnosticoTecnico || '', registro);
+
     const patch = {
+      diagnostico: diagnosticoAtualizado,
       iaDiagnosticoRegistros: registros.slice(-80),
       ultimoDiagnosticoIA: registro.resumo.slice(0, 4000),
       timeline,
@@ -403,6 +462,7 @@
     await db.collection('ordens_servico').doc(os.id).update(patch);
 
     Object.assign(os, patch);
+    atualizarCampoDiagnosticoTecnicoAberto(os.id, diagnosticoAtualizado);
     salvarContextoAtivo(Object.assign({}, ctx, { osId: os.id }));
     return os;
   }

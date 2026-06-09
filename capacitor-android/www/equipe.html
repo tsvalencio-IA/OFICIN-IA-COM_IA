@@ -555,12 +555,15 @@ body.equipe-page .overlay.open{display:flex!important;}
         <select class="j-select" id="osVeiculo"></select>
       </div>
     </div>
-    <div class="form-row c2">
+    <div class="form-row c3">
       <div class="form-group"><label class="j-label">Data Entrada</label>
         <input type="date" class="j-input" id="osData">
       </div>
       <div class="form-group"><label class="j-label">KM</label>
         <input type="number" class="j-input" id="osKm" placeholder="45000">
+      </div>
+      <div class="form-group"><label class="j-label">Número do Prisma</label>
+        <input type="number" class="j-input" id="osPrisma" min="1" step="1" placeholder="1, 2, 3...">
       </div>
     </div>
     <div class="form-group"><label class="j-label">Defeito / Problema Relatado</label>
@@ -1572,9 +1575,12 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   
   db.collection('chat_equipe').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));
+    const uidAtual = chatEquipeUidAtualEquipe();
+    dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(m=>chatEquipeMensagemVisivelParaEquipe(m, uidAtual))
+      .sort((a,b)=>(a.ts||0)-(b.ts||0));
     renderChat();
-    const nLidas=dbMsgs.filter(m=>m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid).length;
+    const nLidas=dbMsgs.filter(m=>!chatEquipeMinhaMensagemEquipe(m)&&!m.lidaEquipe&&(String(m.para||'')===uidAtual||String(m.para||'')==='equipe')).length;
     const badge=$('chatTabBadge');
     if(badge && nLidas>0){badge.classList.remove('d-none');badge.innerText=nLidas;}
     else if(badge) badge.classList.add('d-none');
@@ -1819,7 +1825,7 @@ function prepOS(mode,id=null){
       $('osVeiculo').value=os.veiculoId||'';
       atualizarHeaderOS(os.veiculoId||'', os.clienteId||'');
     },80);
-    $('osData').value=os.data||''; $('osKm').value=os.km||'';
+    $('osData').value=os.data||''; $('osKm').value=os.km||''; if($('osPrisma')) $('osPrisma').value=os.prisma||os.numeroPrisma||'';
     $('osDesc').value=os.desc||''; $('osDiag').value=os.diagnostico||'';
     $('osMO').value=os.maoObra||0;
     $('chkObs').value=os.chkObs||'';
@@ -1897,7 +1903,43 @@ async function salvarExecucaoAprovadosEquipe(osId) {
     timeline,
     updatedAt: new Date().toISOString()
   });
-  toast('✓ Execução dos itens aprovados salva.', 'ok');
+  const idx = dbOS.findIndex(x => x.id === osId);
+  if (idx >= 0) {
+    dbOS[idx] = { ...dbOS[idx], execucaoItens, timeline, updatedAt: new Date().toISOString() };
+    aplicarMarcadoresAprovacaoEquipe(dbOS[idx]);
+  }
+  toast('✓ Execução dos itens aprovados salva. Itens finalizados foram movidos para a aba de concluídos.', 'ok');
+}
+
+function execucaoFinalizadaEquipe(status){
+  return ['executado','executado_obs','trocada','nao_executado','nao_trocada','nao_encontrada','cancelado'].includes(String(status || '').toLowerCase());
+}
+function resumoExecucaoFinalizadaEquipe(it, e){
+  const st = String(e.status || '').toLowerCase();
+  const label = {
+    executado:'Executado',
+    executado_obs:'Executado com observação',
+    trocada:'Peça trocada/executada',
+    nao_executado:'Não executado',
+    nao_trocada:'Não trocada',
+    nao_encontrada:'Peça não encontrada',
+    cancelado:'Cancelado'
+  }[st] || st || 'Finalizado';
+  return `<div style="border:1px solid rgba(0,255,136,.18);background:rgba(0,0,0,.14);border-radius:3px;padding:8px;font-size:.72rem;">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+      <div><b style="color:var(--success);">${escExecEquipe(label)}</b><br>${it.codigo ? '[' + escExecEquipe(it.codigo) + '] ' : ''}${escExecEquipe(it.desc || '-')}</div>
+      <small style="color:var(--muted);white-space:nowrap;">${e.atualizadoEm ? new Date(e.atualizadoEm).toLocaleString('pt-BR') : ''}</small>
+    </div>
+    ${e.obs ? `<div style="margin-top:5px;color:var(--muted2);">Obs.: ${escExecEquipe(e.obs)}</div>` : ''}
+    ${e.atualizadoPor ? `<small style="color:var(--muted);">Por: ${escExecEquipe(e.atualizadoPor)}</small>` : ''}
+  </div>`;
+}
+function toggleExecConcluidosEquipe(btn){
+  const box = document.getElementById('execConcluidosEquipeBody');
+  if (!box) return;
+  const abrir = box.style.display === 'none';
+  box.style.display = abrir ? 'grid' : 'none';
+  if (btn) btn.textContent = abrir ? 'Minimizar' : 'Maximizar';
 }
 
 function aplicarMarcadoresAprovacaoEquipe(os) {
@@ -1915,29 +1957,40 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
     row.querySelector('.aprovacao-item-badge')?.remove();
     row.insertAdjacentHTML('beforeend', mk('peca-' + idx));
   });
+
   const cliente = (dbClientes || []).find(c => c.id === os?.clienteId);
   const itens = U.buildBudgetItems?.(os, cliente) || [];
   const aprovados = itens.filter(it => keys.has(it.key));
   const pendentes = itens.filter(it => !keys.has(it.key));
-  const moeda = U.moeda || (v => 'R$ ' + parseBR(v).toFixed(2).replace('.', ','));
-  const total = os?.totalAprovado != null ? parseBR(os.totalAprovado) : aprovados.reduce((sum, it) => sum + parseBR(it.valorFinal), 0);
   const exec = os?.execucaoItens || {};
+  const aprovadosAtivos = aprovados.filter(it => !execucaoFinalizadaEquipe(exec[it.key]?.status));
+  const aprovadosConcluidos = aprovados.filter(it => execucaoFinalizadaEquipe(exec[it.key]?.status));
+
   const execHtml = aprovados.length ? `
     <div style="margin-top:14px;border-top:1px solid rgba(255,255,255,.12);padding-top:12px;">
-      <div style="font-family:var(--fm);font-size:.72rem;color:var(--cyan);font-weight:800;letter-spacing:1px;margin-bottom:8px;">EXECUÇÃO DOS ITENS APROVADOS</div>
-      <div style="font-family:var(--fm);font-size:.60rem;color:var(--muted);margin-bottom:8px;">Mecânicos e usuários da equipe podem marcar o que foi executado, trocado, não executado ou não encontrado. O cliente não visualiza essas marcações internas.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="font-family:var(--fm);font-size:.72rem;color:var(--cyan);font-weight:800;letter-spacing:1px;">EXECUÇÃO DOS ITENS APROVADOS</div>
+        ${aprovadosConcluidos.length ? `<button type="button" class="btn-outline" style="font-size:.62rem;padding:5px 9px;" onclick="toggleExecConcluidosEquipe(this)">Maximizar</button>` : ''}
+      </div>
+      <div style="font-family:var(--fm);font-size:.60rem;color:var(--muted);margin-bottom:8px;">Itens marcados como executados/trocados saem da lista operacional e ficam guardados abaixo em "Itens concluídos", sem sumir do histórico da O.S.</div>
       <div style="display:grid;gap:7px;">
-        ${aprovados.map(it => {
+        ${aprovadosAtivos.length ? aprovadosAtivos.map(it => {
           const e = exec[it.key] || {};
           return `<div class="execucao-aprovado-row" data-key="${escExecEquipe(it.key)}" data-tipo="${escExecEquipe(it.tipo)}" style="display:grid;grid-template-columns:minmax(220px,1fr) 190px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
             <div style="font-size:.75rem;color:var(--text);"><b>${escExecEquipe(it.labelTipo || it.tipo)}</b> ${it.codigo ? '[' + escExecEquipe(it.codigo) + '] ' : ''}${escExecEquipe(it.desc || '-')}${it.tempo ? `<br><small style="color:var(--muted);">TMO ${String(it.tempo).replace('.', ',')}h</small>` : ''}</div>
             <select class="j-select exec-status" style="font-size:.72rem;">${statusOptionsExecEquipe(it.tipo, e.status || 'pendente')}</select>
             <input class="j-input exec-obs" value="${escExecEquipe(e.obs || '')}" placeholder="Observação interna: peça não encontrada, aguardando, executado...">
           </div>`;
-        }).join('')}
+        }).join('') : `<div style="border:1px dashed rgba(0,255,136,.25);background:rgba(0,255,136,.05);border-radius:3px;padding:10px;color:var(--success);font-family:var(--fm);font-size:.68rem;">Todos os itens aprovados já foram marcados como executados/trocados ou finalizados.</div>`}
       </div>
-      <button type="button" class="btn-primary" style="margin-top:10px;" onclick="salvarExecucaoAprovadosEquipe('${escExecEquipe(os.id || '')}')">SALVAR EXECUÇÃO DA EQUIPE</button>
+      ${aprovadosAtivos.length ? `<button type="button" class="btn-primary" style="margin-top:10px;" onclick="salvarExecucaoAprovadosEquipe('${escExecEquipe(os.id || '')}')">SALVAR EXECUÇÃO DA EQUIPE</button>` : ''}
+      ${aprovadosConcluidos.length ? `
+        <div style="margin-top:12px;border:1px solid rgba(0,255,136,.18);border-radius:3px;background:rgba(0,255,136,.04);padding:10px;">
+          <div style="font-family:var(--fd);font-weight:800;color:var(--success);letter-spacing:1px;margin-bottom:8px;">ITENS CONCLUÍDOS / EXECUTADOS (${aprovadosConcluidos.length})</div>
+          <div id="execConcluidosEquipeBody" style="display:none;gap:7px;">${aprovadosConcluidos.map(it => resumoExecucaoFinalizadaEquipe(it, exec[it.key] || {})).join('')}</div>
+        </div>` : ''}
     </div>` : '';
+
   const box = document.createElement('div');
   box.id = 'resumoAprovacaoEquipe';
   box.style.cssText = 'background:rgba(0,255,136,.07);border:1px solid rgba(0,255,136,.24);border-radius:4px;padding:12px;margin-bottom:14px;';
@@ -2169,7 +2222,7 @@ async function salvarOS(){
   
   const p={
     tenantId:J.tid,tipoVeiculo:$v('osTipo'),clienteId:$v('osCliente'),veiculoId:$v('osVeiculo'),
-    mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),
+    mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),prisma:$v('osPrisma'),numeroPrisma:$v('osPrisma'),
     desc:$v('osDesc'),diagnostico:$v('osDiag'),status:$v('osStatus'),
     maoObra:parseBR($v('osMO')||0),
     total: t,
@@ -2316,6 +2369,18 @@ function renderTimeline(){
 // ============================================================
 function chatEquipeUidAtualEquipe(){
   return String(J.fid || sessionStorage.getItem('j_fid') || J.uid || J.nome || 'equipe');
+}
+function chatEquipeMensagemVisivelParaEquipe(m, uidAtual){
+  const uid = String(uidAtual || chatEquipeUidAtualEquipe());
+  const de = String(m.de || m.senderId || m.autorId || '');
+  const para = String(m.para || '');
+  const origem = String(m.sender || m.autorTipo || '').toLowerCase();
+  if (!uid) return false;
+  if (de === uid) return true;
+  if (para === uid) return true;
+  if (para === 'equipe' && origem !== 'admin_admin' && origem !== 'dono') return true;
+  if (m.origem === 'status_pronto' && (de === uid || para === 'admin')) return true;
+  return false;
 }
 function chatEquipeMinhaMensagemEquipe(m){
   const uid = chatEquipeUidAtualEquipe();
