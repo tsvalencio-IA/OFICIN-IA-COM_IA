@@ -370,21 +370,29 @@
     if (!os) os = encontrarOSPorPlaca(placa);
     if (!os || !os.id) throw new Error('Não encontrei O.S. vinculada à placa ' + placa + '.');
 
+    const refOS = db.collection('ordens_servico').doc(os.id);
+    let osAtual = os;
+    try {
+      const snapOS = await refOS.get();
+      if (snapOS && snapOS.exists) osAtual = Object.assign({ id: os.id }, snapOS.data() || {});
+    } catch (_) {}
+
     const agora = new Date().toISOString();
     const usuario = getJ().nome || getJ().user?.nome || getJ().user?.displayName || 'OFICIN-IA';
+    const resumoRegistro = String(textoExtra || '').trim() || ultimasMensagensParaResumo();
     const registro = {
       tipo: tipo || 'conversa',
       placa,
       usuario,
       createdAt: agora,
       origem: location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis',
-      resumo: String(textoExtra || '').trim() || ultimasMensagensParaResumo()
+      resumo: resumoRegistro
     };
 
-    const registros = Array.isArray(os.iaDiagnosticoRegistros) ? os.iaDiagnosticoRegistros.slice() : [];
+    const registros = Array.isArray(osAtual.iaDiagnosticoRegistros) ? osAtual.iaDiagnosticoRegistros.slice() : [];
     registros.push(registro);
 
-    const timeline = Array.isArray(os.timeline) ? os.timeline.slice() : [];
+    const timeline = Array.isArray(osAtual.timeline) ? osAtual.timeline.slice() : [];
     timeline.push({
       dt: agora,
       user: usuario,
@@ -393,18 +401,42 @@
       interno: true
     });
 
+    const dataBR = new Date(agora).toLocaleString('pt-BR');
+    const tituloBloco = tipo === 'teste'
+      ? `TESTE / RESULTADO REGISTRADO COM thIAguinho IA`
+      : `CONVERSA / DIAGNÓSTICO REGISTRADO COM thIAguinho IA`;
+    const blocoDiagnostico = [
+      `[${dataBR}] ${tituloBloco}`,
+      `Usuário: ${usuario}`,
+      resumoRegistro
+    ].filter(Boolean).join('\n');
+
+    const diagAtual = String(
+      osAtual.diagnostico ||
+      osAtual.diagnosticoTecnico ||
+      osAtual.diagnosticoInterno ||
+      ''
+    ).trim();
+
+    const diagnosticoFinal = diagAtual
+      ? `${diagAtual}\n\n${blocoDiagnostico}`
+      : blocoDiagnostico;
+
     const patch = {
+      diagnostico: diagnosticoFinal,
+      diagnosticoTecnico: diagnosticoFinal,
+      diagnosticoInterno: diagnosticoFinal,
       iaDiagnosticoRegistros: registros.slice(-80),
       ultimoDiagnosticoIA: registro.resumo.slice(0, 4000),
       timeline,
       updatedAt: agora
     };
 
-    await db.collection('ordens_servico').doc(os.id).update(patch);
+    await refOS.update(patch);
 
     Object.assign(os, patch);
     salvarContextoAtivo(Object.assign({}, ctx, { osId: os.id }));
-    return os;
+    return Object.assign({}, os, patch);
   }
 
   W.thiaDiagSalvarNaOS = async function(tipo) {

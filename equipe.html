@@ -563,6 +563,11 @@ body.equipe-page .overlay.open{display:flex!important;}
         <input type="number" class="j-input" id="osKm" placeholder="45000">
       </div>
     </div>
+    <div class="form-row c2">
+      <div class="form-group"><label class="j-label">Número do Prisma</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="j-input" id="osPrisma" placeholder="Ex: 1, 2, 3..." style="font-family:var(--fm);font-weight:800;letter-spacing:1px;color:var(--success);">
+      </div>
+    </div>
     <div class="form-group"><label class="j-label">Defeito / Problema Relatado</label>
       <div class="field-voice-wrap has-textarea">
         <textarea class="j-textarea" id="osDesc" rows="3" placeholder="Descreva o problema..."></textarea>
@@ -1572,9 +1577,9 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   
   db.collection('chat_equipe').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));
+    dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()})).filter(chatEquipeMensagemPertenceAoMecanico).sort((a,b)=>(a.ts||0)-(b.ts||0));
     renderChat();
-    const nLidas=dbMsgs.filter(m=>m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid).length;
+    const nLidas=dbMsgs.filter(m=>!chatEquipeMinhaMensagemEquipe(m)&&!m.lidaEquipe).length;
     const badge=$('chatTabBadge');
     if(badge && nLidas>0){badge.classList.remove('d-none');badge.innerText=nLidas;}
     else if(badge) badge.classList.add('d-none');
@@ -1729,7 +1734,8 @@ function renderKanban(){
   minhasOS.forEach(o=>{
     const v = dbVeiculos.find(x=>x.id===o.veiculoId) || {placa:o.placa, tipo:o.tipoVeiculo||'carro'};
     const c = dbClientes.find(x=>x.id===o.clienteId) || {nome:o.cliente||'—'};
-    if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca)) return;
+    const prismaBusca = String(o.prisma || o.numeroPrisma || '').toLowerCase();
+    if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca) && !prismaBusca.includes(busca)) return;
     const st = stMap[o.status] || 'Aguardando';
     if(cols[st]){ cols[st].push({os:o,v,c}); cnts[st]++; }
   });
@@ -1743,6 +1749,8 @@ function renderKanban(){
     kEl.innerHTML=cols[s].sort((a,b)=>new Date(b.os.updatedAt||0)-new Date(a.os.updatedAt||0)).map(({os,v,c})=>{
       const qm = STATUS_NEXT[s];
       const qmBtn = qm ? `<button class="k-move-btn" onclick="quickMoveOS('${os.id}','${qm.next}',event)">${qm.label}</button>` : '';
+      const prisma = String(os.prisma || os.numeroPrisma || '').trim();
+      const prismaBadge = prisma ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-bottom:5px;padding:3px 7px;border:1px solid rgba(0,255,136,.35);background:rgba(0,255,136,.10);border-radius:999px;font-family:var(--fm);font-size:.58rem;font-weight:900;letter-spacing:.9px;color:var(--success);">PRISMA ${String(prisma).replace(/[<>&"']/g,'')}</div>` : '';
       const valores = `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:8px 0;">
         <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);padding:5px;border-radius:3px;"><small style="display:block;font-family:var(--fm);font-size:.47rem;color:var(--muted);">ORÇ.</small><b style="font-family:var(--fm);font-size:.58rem;color:var(--warn);">SEM VALOR</b></div>
         <div style="background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.12);padding:5px;border-radius:3px;"><small style="display:block;font-family:var(--fm);font-size:.47rem;color:var(--muted);">APROV.</small><b style="font-family:var(--fm);font-size:.58rem;color:var(--cyan);">STATUS</b></div>
@@ -1750,6 +1758,7 @@ function renderKanban(){
       </div>`;
       return `
       <div class="k-card" style="border-left-color:${cor}" onclick="prepOS('edit','${os.id}');abrirModal('modalOS')">
+        ${prismaBadge}
         <div class="k-placa" style="color:${cor}">${v?.placa||os.placa||'S/PLACA'}</div>
         <div class="k-cli">${c?.nome||os.cliente||'—'}</div>
         <div class="k-desc">${os.desc||os.relato||'Sem descrição'}</div>
@@ -1783,7 +1792,7 @@ function filtrarVeics(){
 }
 
 function prepOS(mode,id=null){
-  ['osId','osDesc','osDiag','osKm'].forEach(f=>{if($(f))$(f).value='';});
+  ['osId','osDesc','osDiag','osKm','osPrisma'].forEach(f=>{if($(f))$(f).value='';});
   $('osMO').value='0'; $('osTipo').value='carro'; $('osStatus').value='Aguardando';
   $('osData').value=new Date().toISOString().split('T')[0];
   $('containerPecas').innerHTML=''; $('containerServicos').innerHTML='';
@@ -1819,7 +1828,7 @@ function prepOS(mode,id=null){
       $('osVeiculo').value=os.veiculoId||'';
       atualizarHeaderOS(os.veiculoId||'', os.clienteId||'');
     },80);
-    $('osData').value=os.data||''; $('osKm').value=os.km||'';
+    $('osData').value=os.data||''; $('osKm').value=os.km||''; if($('osPrisma')) $('osPrisma').value = os.prisma || os.numeroPrisma || '';
     $('osDesc').value=os.desc||''; $('osDiag').value=os.diagnostico||'';
     $('osMO').value=os.maoObra||0;
     $('chkObs').value=os.chkObs||'';
@@ -2170,6 +2179,7 @@ async function salvarOS(){
   const p={
     tenantId:J.tid,tipoVeiculo:$v('osTipo'),clienteId:$v('osCliente'),veiculoId:$v('osVeiculo'),
     mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),
+    prisma:$v('osPrisma'),numeroPrisma:$v('osPrisma'),
     desc:$v('osDesc'),diagnostico:$v('osDiag'),status:$v('osStatus'),
     maoObra:parseBR($v('osMO')||0),
     total: t,
@@ -2316,6 +2326,29 @@ function renderTimeline(){
 // ============================================================
 function chatEquipeUidAtualEquipe(){
   return String(J.fid || sessionStorage.getItem('j_fid') || J.uid || J.nome || 'equipe');
+}
+function chatEquipeAdminIdsEquipe(){
+  const ids = new Set(['admin']);
+  if (J.tid) ids.add(String(J.tid));
+  if (J.adminId) ids.add(String(J.adminId));
+  if (J.gestorId) ids.add(String(J.gestorId));
+  return ids;
+}
+function chatEquipeMensagemPertenceAoMecanico(m){
+  const uid = chatEquipeUidAtualEquipe();
+  const meus = new Set([uid, String(J.fid || ''), String(J.uid || '')].filter(Boolean));
+  const admins = chatEquipeAdminIdsEquipe();
+  const de = String(m.de || m.senderId || m.autorId || '');
+  const para = String(m.para || m.destinoId || m.to || '');
+  const senderId = String(m.senderId || m.autorId || m.de || '');
+  const destinatarioId = String(m.destinatarioId || m.paraId || m.para || '');
+  const euEnviei = meus.has(de) || meus.has(senderId);
+  const veioParaMim = meus.has(para) || meus.has(destinatarioId);
+  const adminEnviou = admins.has(de) || admins.has(senderId) || String(m.sender || '').toLowerCase() === 'admin';
+  const vaiParaAdmin = admins.has(para) || String(para).toLowerCase() === 'admin';
+  // Conversa da equipe é sempre 1:1: este mecânico ↔ admin/gestor.
+  // Não mostra conversa de gerente com dono/admin, nem mensagens de outro mecânico.
+  return (euEnviei && vaiParaAdmin) || (adminEnviou && veioParaMim);
 }
 function chatEquipeMinhaMensagemEquipe(m){
   const uid = chatEquipeUidAtualEquipe();
