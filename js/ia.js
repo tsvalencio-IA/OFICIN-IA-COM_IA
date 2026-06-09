@@ -35,6 +35,261 @@
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num(v));
   }
 
+  function dataISO(v) {
+    const raw = String(v == null ? '' : v).trim();
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return raw.slice(0, 10);
+  }
+
+  function dataBR(v) {
+    const iso = dataISO(v);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '-';
+    return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+  }
+
+  function textoLivre(obj, campos) {
+    return (campos || []).map(k => {
+      try {
+        const val = k.split('.').reduce((acc, p) => acc == null ? acc : acc[p], obj);
+        if (Array.isArray(val)) return val.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ');
+        if (val && typeof val === 'object') return JSON.stringify(val);
+        return String(val == null ? '' : val);
+      } catch (_) {
+        return '';
+      }
+    }).join(' ');
+  }
+
+  function isPagoStatus(v) {
+    const s = norm(v);
+    return /\b(pago|paga|liquidado|liquidada|baixado|baixada|quitado|quitada|recebido|recebida)\b/.test(s);
+  }
+
+  function isCanceladoStatus(v) {
+    return /\b(cancelado|cancelada|estornado|estornada|recusado|recusada)\b/.test(norm(v));
+  }
+
+  function isPendenteStatus(v) {
+    return !isPagoStatus(v) && !isCanceladoStatus(v);
+  }
+
+  function textoFinanceiro(f) {
+    return textoLivre(f, [
+      'id','tipo','status','desc','descricao','observacao','obs','fornecedor','fornecedorNome',
+      'cliente','clienteNome','numero','numeroNF','nf','nota','documento','osId','osNumero',
+      'placa','veiculo','mecId','mecNome','responsavel','funcionario','colaborador','vinculo',
+      'forma','pgto','categoria','subcategoria'
+    ]);
+  }
+
+  function financeiroEhComissao(f) {
+    return !!(f && (f.isComissao || /comiss/.test(norm(textoFinanceiro(f)))));
+  }
+
+  function funcionarioTexto(f) {
+    return textoLivre(f, ['id','nome','usuario','cargo','apelido','email','wpp']);
+  }
+
+  function funcionarioPorPergunta(ctx, q) {
+    const equipe = Array.isArray(ctx.equipe) ? ctx.equipe : [];
+    const termosQ = norm(q).split(/\s+/).filter(t => t.length >= 3 && !/comiss|comissao|comissoes|pagar|pagas|pago|pendente|funcionario|mecanico|colaborador|para|do|da|de|com|financeiro/.test(t));
+    let melhor = null;
+    let melhorScore = 0;
+    equipe.forEach(f => {
+      const nome = norm(funcionarioTexto(f));
+      if (!nome) return;
+      let score = 0;
+      termosQ.forEach(t => { if (nome.includes(t)) score += t.length; });
+      const nomeTokens = norm(f.nome || '').split(/\s+/).filter(Boolean);
+      nomeTokens.forEach(t => { if (t.length >= 3 && norm(q).includes(t)) score += t.length + 2; });
+      if (score > melhorScore) { melhor = f; melhorScore = score; }
+    });
+    return melhorScore >= 3 ? melhor : null;
+  }
+
+  function financeiroDoFuncionario(f, func) {
+    if (!func) return true;
+    const ids = [func.id, func.uid, func.userId, func.usuario].map(v => String(v || '').trim()).filter(Boolean);
+    const nome = norm(func.nome || func.usuario || '');
+    const hay = norm(textoFinanceiro(f));
+    if (ids.some(id => [f.mecId, f.funcId, f.funcionarioId, f.colaboradorId, f.userId, f.vinculo].map(v => String(v || '')).includes(id))) return true;
+    if (nome && hay.includes(nome)) return true;
+    const partes = nome.split(/\s+/).filter(t => t.length >= 3);
+    return partes.length && partes.every(t => hay.includes(t));
+  }
+
+  function tipoFinanceiro(f) {
+    return norm([f.tipo, f.natureza, f.operacao, f.categoria, f.desc, f.descricao].join(' '));
+  }
+
+  function formatarLinhaFinanceiro(f) {
+    const desc = f.desc || f.descricao || f.titulo || f.nome || 'Lançamento';
+    const venc = dataBR(f.venc || f.vencimento || f.data || f.dataPagamento || f.createdAt);
+    const forma = f.pgto || f.forma || f.formaPagamento || '';
+    const status = f.status || '-';
+    return `- ${esc(venc)} | ${esc(desc)} | ${moeda(f.valor || f.total || 0)} | ${esc(status)}${forma ? ` | ${esc(forma)}` : ''}`;
+  }
+
+  function extrairNumeroNF(q) {
+    const m = String(q || '').match(/\b(?:nf|nota\s*fiscal)?\s*([0-9]{3,})\b/i);
+    return m ? m[1] : '';
+  }
+
+  function notaTexto(n) {
+    return textoLivre(n, [
+      'id','numero','numeroNF','nf','chave','fornecedorNome','fornecedorSnapshot.nome',
+      'fornecedorSnapshot.cnpj','cnpj','dataNF','emissao','status','observacao','xmlNome'
+    ]);
+  }
+
+  function formatarLinhaNota(n) {
+    return `- NF ${esc(n.numero || n.numeroNF || n.nf || '-')} | ${esc(n.fornecedorSnapshot?.nome || n.fornecedorNome || n.fornecedor || '-')} | ${esc(dataBR(n.dataNF || n.emissao || n.createdAt))} | ${moeda(n.totalNF || n.totalItens || n.valor || 0)}`;
+  }
+
+  function responderNotasDetalhadas(texto, q, ctx) {
+    if (!/nota fiscal|\bnf\b|xml|fornecedor/.test(q)) return null;
+    if (!ctx.notas.length) return 'Nao ha notas fiscais carregadas nesta sessao.';
+    const numeroNF = extrairNumeroNF(texto);
+    const stop = /^(nota|fiscal|nf|xml|fornecedor|fornecedores|da|de|do|das|dos|a|o|e|com)$/;
+    const termos = q.split(/\s+/).filter(t => t.length >= 3 && !stop.test(t) && !/^\d+$/.test(t));
+    let lista = ctx.notas.slice();
+    if (numeroNF) {
+      lista = lista.filter(n => String(n.numero || n.numeroNF || n.nf || '').includes(numeroNF) || norm(notaTexto(n)).includes(numeroNF));
+    }
+    if (termos.length) {
+      lista = lista.filter(n => {
+        const hay = norm(notaTexto(n));
+        return termos.every(t => hay.includes(t));
+      });
+    }
+    if (!lista.length) return 'Nao encontrei nota fiscal com esses filtros nos dados carregados.';
+    const total = lista.reduce((s, n) => s + num(n.totalNF || n.totalItens || n.valor || 0), 0);
+    return `<strong>Notas fiscais localizadas (${lista.length}):</strong><br>${lista.slice(0, 25).map(formatarLinhaNota).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}`;
+  }
+
+  function responderComissoesDetalhadas(texto, q, ctx, opts) {
+    if (!/comiss|mecanico|funcionario|colaborador/.test(q)) {
+      const funcSozinho = funcionarioPorPergunta(ctx, q);
+      if (!funcSozinho) return null;
+    }
+    if (!podeFinanceiro(opts)) return 'Seu perfil nao tem permissao para consultar comissoes ou financeiro.';
+    const func = funcionarioPorPergunta(ctx, q);
+    let lista = ctx.financeiro.filter(financeiroEhComissao);
+    if (func) lista = lista.filter(f => financeiroDoFuncionario(f, func));
+    const querPagas = /\b(pagas|pago|pagos|pagamento|liquidadas|quitadas)\b/.test(q) && !/\ba\s+pagar\b/.test(q);
+    const querPendentes = /\b(a\s+pagar|pagar|pendente|pendentes|aberto|abertas|em\s+aberto|devido|devidas)\b/.test(q) || !querPagas;
+    if (querPagas) lista = lista.filter(f => isPagoStatus(f.status));
+    else if (querPendentes) lista = lista.filter(f => isPendenteStatus(f.status));
+    const tituloPessoa = func ? ` de ${esc(func.nome || func.usuario || 'colaborador')}` : '';
+    if (!lista.length) return `Nao encontrei comissoes${tituloPessoa} ${querPagas ? 'pagas' : 'a pagar'} nos dados carregados.`;
+    const total = lista.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+    const porPessoa = {};
+    lista.forEach(f => {
+      const id = f.mecId || f.funcId || f.funcionarioId || f.colaboradorId || f.vinculo || 'sem-vinculo';
+      const nome = (ctx.equipe.find(e => [e.id,e.uid,e.usuario].map(x=>String(x||'')).includes(String(id))) || {}).nome || f.mecNome || f.funcionario || f.colaborador || (func && (func.nome || func.usuario)) || 'Sem colaborador identificado';
+      porPessoa[nome] = (porPessoa[nome] || 0) + num(f.valor || f.total || 0);
+    });
+    const resumo = Object.keys(porPessoa).length > 1
+      ? '<br><strong>Resumo por colaborador:</strong><br>' + Object.entries(porPessoa).sort((a,b)=>b[1]-a[1]).map(([nome, total]) => `- ${esc(nome)}: ${moeda(total)}`).join('<br>')
+      : '';
+    return `<strong>Comissões ${querPagas ? 'pagas' : 'a pagar'}${tituloPessoa} (${lista.length}):</strong><br>${lista.slice(0, 30).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}${resumo}`;
+  }
+
+  function responderFinanceiroDetalhado(texto, q, ctx, opts) {
+    const consultaFinanceira = /boleto|boletos|conta|contas|titulo|duplicata|financeiro|pix|vencid|vencendo|vencimento|pagar|receber|paga|pagas|pago|pagos|pendente|pendentes|atrasad|hoje|amanha|dre|caixa|comiss/.test(q);
+    if (!consultaFinanceira) return null;
+    const comissoes = responderComissoesDetalhadas(texto, q, ctx, opts);
+    if (comissoes && /comiss|mecanico|funcionario|colaborador/.test(q)) return comissoes;
+    if (!podeFinanceiro(opts)) return 'Seu perfil nao tem permissao para consultar financeiro. Posso consultar O.S., historico tecnico, defeitos, veiculos e execucao.';
+    const hoje = hojeISO();
+    const amanha = (() => { const d = new Date(); d.setDate(d.getDate()+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+    const analiseFinanceira = /analis|analise|resumo|risco|prioridade|dre|atual|geral/.test(q);
+    let lista = ctx.financeiro.slice();
+
+    if (/\bhoje\b/.test(q) || /vencimento\s+hoje/.test(q)) lista = lista.filter(f => dataISO(f.venc || f.vencimento || f.data) === hoje);
+    if (/\bamanha\b/.test(q)) lista = lista.filter(f => dataISO(f.venc || f.vencimento || f.data) === amanha);
+    if (/vencid|atrasad/.test(q)) lista = lista.filter(f => {
+      const venc = dataISO(f.venc || f.vencimento || f.data);
+      return venc && venc < hoje && isPendenteStatus(f.status);
+    });
+
+    const querPagas = /\b(contas?\s+pagas?|pagas|pago|pagos|liquidadas|quitadas)\b/.test(q) && !/\ba\s+pagar\b/.test(q);
+    const querPendentes = /\b(contas?\s+a\s+pagar|a\s+pagar|pagar|pendente|pendentes|aberto|abertas|em\s+aberto|boletos?)\b/.test(q) && !querPagas;
+    if (querPagas) lista = lista.filter(f => isPagoStatus(f.status));
+    if (querPendentes) lista = lista.filter(f => isPendenteStatus(f.status));
+
+    if (/receber|recebimento|entrada/.test(q) && !/pagar/.test(q)) lista = lista.filter(f => /entrada|receb/.test(tipoFinanceiro(f)));
+    if (/pagar|boleto|conta/.test(q) && !/receber/.test(q)) {
+      const saidas = lista.filter(f => !/entrada|recebimento/.test(tipoFinanceiro(f)));
+      if (saidas.length) lista = saidas;
+    }
+
+    if (/pix/.test(q) && /parcel/.test(q)) {
+      lista = ctx.financeiro.filter(f => /pix/i.test(String(f.pgto || f.forma || '')) && (num(f.pgtoParcelas || f.parcelas || 1) > 1 || /\(\d+\s*\/\s*\d+\)/.test(String(f.desc || ''))));
+      if (!lista.length) return 'Nao encontrei PIX parcelado nos dados carregados.';
+    }
+
+    const numeroNF = extrairNumeroNF(texto);
+    if (numeroNF && /\bnf\b|nota|fiscal/.test(q)) lista = lista.filter(f => norm(textoFinanceiro(f)).includes(numeroNF));
+
+    const stop = /^(financeiro|boleto|boletos|conta|contas|pagar|pagas|pago|pagos|pendente|pendentes|vencimento|vencendo|vencidas|vencidos|atrasadas|atrasados|hoje|amanha|nf|nota|fiscal|a|o|as|os|de|do|da|das|dos|para|com|em|no|na)$/;
+    const termos = q.split(/\s+/).filter(t => t.length >= 4 && !stop.test(t) && !/^\d+$/.test(t));
+    if (termos.length) {
+      const filtrada = lista.filter(f => {
+        const hay = norm(textoFinanceiro(f));
+        return termos.every(t => hay.includes(t));
+      });
+      if (filtrada.length) lista = filtrada;
+    }
+
+    if (analiseFinanceira) {
+      const vencidos = ctx.financeiro.filter(f => {
+        const venc = dataISO(f.venc || f.vencimento || f.data);
+        return venc && venc < hoje && isPendenteStatus(f.status);
+      });
+      const hojeLista = ctx.financeiro.filter(f => dataISO(f.venc || f.vencimento || f.data) === hoje);
+      const pendentes = ctx.financeiro.filter(f => isPendenteStatus(f.status));
+      const totalPendente = pendentes.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+      const linhas = [
+        `<strong>Análise financeira local:</strong> ${ctx.financeiro.length} lançamento(s) carregado(s).`,
+        `Pendentes/em aberto: ${pendentes.length} (${moeda(totalPendente)}).`,
+        `Vencidos: ${vencidos.length}. Vencendo hoje: ${hojeLista.length}.`
+      ];
+      const prioridades = [...vencidos, ...hojeLista, ...pendentes]
+        .filter((f, i, arr) => arr.findIndex(x => (x.id || x.desc || x.descricao) === (f.id || f.desc || f.descricao)) === i)
+        .slice(0, 20);
+      if (prioridades.length) linhas.push('<br><strong>Prioridades:</strong><br>' + prioridades.map(formatarLinhaFinanceiro).join('<br>'));
+      return linhas.join('<br>');
+    }
+
+    if (!lista.length) return 'Nao encontrei lancamento financeiro para essa pergunta nos dados carregados.';
+    const total = lista.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+    return `<strong>Financeiro localizado (${lista.length}):</strong><br>${lista.slice(0, 30).map(formatarLinhaFinanceiro).join('<br>')}<br><br><strong>Total:</strong> ${moeda(total)}`;
+  }
+
+  function responderJarvisDadosPrecisos(texto, q, ctx, opts) {
+    const notas = responderNotasDetalhadas(texto, q, ctx);
+    if (notas) return notas;
+    const comissoes = responderComissoesDetalhadas(texto, q, ctx, opts);
+    if (comissoes && /comiss|mecanico|funcionario|colaborador/.test(q)) return comissoes;
+    const financeiro = responderFinanceiroDetalhado(texto, q, ctx, opts);
+    if (financeiro) return financeiro;
+    const func = funcionarioPorPergunta(ctx, q);
+    if (func && podeFinanceiro(opts)) {
+      const pend = ctx.financeiro.filter(f => financeiroEhComissao(f) && financeiroDoFuncionario(f, func) && isPendenteStatus(f.status));
+      const pagas = ctx.financeiro.filter(f => financeiroEhComissao(f) && financeiroDoFuncionario(f, func) && isPagoStatus(f.status));
+      const totalPend = pend.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+      const totalPagas = pagas.reduce((s, f) => s + num(f.valor || f.total || 0), 0);
+      return `<strong>Colaborador localizado:</strong> ${esc(func.nome || func.usuario || func.id)}<br>Cargo: ${esc(func.cargo || '-')}<br>Comissões a pagar: ${pend.length} (${moeda(totalPend)}).<br>Comissões pagas: ${pagas.length} (${moeda(totalPagas)}).`;
+    }
+    return null;
+  }
+
   function hojeISO() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -317,6 +572,9 @@
       const sup = responderSuperadmin(texto);
       if (sup) return sup;
     }
+
+    const respostaDadosPrecisos = responderJarvisDadosPrecisos(texto, q, ctx, opts);
+    if (respostaDadosPrecisos) return aplicarComportamento(respostaDadosPrecisos);
 
     const placa = extrairPlaca(texto);
     if (placa) {
