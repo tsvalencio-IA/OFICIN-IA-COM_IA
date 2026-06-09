@@ -563,12 +563,6 @@ body.equipe-page .overlay.open{display:flex!important;}
         <input type="number" class="j-input" id="osKm" placeholder="45000">
       </div>
     </div>
-    <div class="form-row c2">
-      <div class="form-group"><label class="j-label">Número do Prisma</label>
-        <input type="text" inputmode="numeric" class="j-input" id="osPrisma" placeholder="Ex: 1, 2, 3..." autocomplete="off">
-      </div>
-      <div></div>
-    </div>
     <div class="form-group"><label class="j-label">Defeito / Problema Relatado</label>
       <div class="field-voice-wrap has-textarea">
         <textarea class="j-textarea" id="osDesc" rows="3" placeholder="Descreva o problema..."></textarea>
@@ -784,6 +778,27 @@ try { centralDbEquipe = window.initCentralFirebase ? window.initCentralFirebase(
 
 // STATE
 let dbOS=[], dbClientes=[], dbVeiculos=[], dbEstoque=[], dbMsgs=[];
+
+function sincronizarBasesEquipeParaIA(){
+  try {
+    window.dbOS = dbOS;
+    window.__dbOS = dbOS;
+    window.dbClientes = dbClientes;
+    window.dbVeiculos = dbVeiculos;
+    window.dbEstoque = dbEstoque;
+    window.J = window.J || J;
+    window.J.dbOS = dbOS;
+    window.J.os = dbOS;
+    window.J.dbClientes = dbClientes;
+    window.J.clientes = dbClientes;
+    window.J.dbVeiculos = dbVeiculos;
+    window.J.veiculos = dbVeiculos;
+    window.J.dbEstoque = dbEstoque;
+    window.J.estoque = dbEstoque;
+  } catch(e) {
+    console.warn('[Equipe] Não foi possível sincronizar bases para IA:', e);
+  }
+}
 
 function roleEquipeAtual(){
   return String(J.role || '').toLowerCase();
@@ -1198,6 +1213,10 @@ $('iaInput')?.addEventListener('keydown', e => {
 // BLINDAGEM DA IA: REMOÇÃO DO GOOGLE SEARCH E FILTRO CIRÚRGICO
 // ═══════════════════════════════════════════════════════════════
 async function iaEnviar() {
+  if (window.thiaDiagnosticoIA && typeof window.thiaIAAsk === 'function' && !window.__THIA_EQUIPE_IA_LOCAL_LOCK__) {
+    return window.thiaIAAsk('iaInput', 'equipe');
+  }
+
   const inp = $('iaInput');
   const msg = inp?.value?.trim();
   if (!msg) return;
@@ -1555,10 +1574,11 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 
+  sincronizarBasesEquipeParaIA();
   statusEquipeDados('Sincronizando pátio da equipe...', 'warn');
   db.collection('ordens_servico').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbOS=snap.docs.map(d=>({id:d.id,...d.data()}));
-    window.dbOS = dbOS; J.os = dbOS;
+    sincronizarBasesEquipeParaIA();
     statusEquipeDados('');
     renderKanban(); renderKPIs();
   }, err => {
@@ -1568,23 +1588,22 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   db.collection('clientes').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbClientes=snap.docs.map(d=>({id:d.id,...d.data()}));
-    window.dbClientes = dbClientes; J.clientes = dbClientes;
+    sincronizarBasesEquipeParaIA();
     popularSelects();
   });
   db.collection('veiculos').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));
-    window.dbVeiculos = dbVeiculos; J.veiculos = dbVeiculos;
+    sincronizarBasesEquipeParaIA();
     popularSelects();
   });
   db.collection('estoqueItems').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbEstoque=snap.docs.map(d=>({id:d.id,...d.data()}));
-    window.dbEstoque = dbEstoque; J.estoque = dbEstoque;
   });
   
   db.collection('chat_equipe').where('tenantId','==',J.tid).onSnapshot(snap=>{
     dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));
     renderChat();
-    const nLidas=dbMsgs.filter(m=>chatEquipeMsgVisivelParaMecanico(m) && !chatEquipeMinhaMensagemEquipe(m) && !m.lidaEquipe).length;
+    const nLidas=dbMsgs.filter(m=>m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid).length;
     const badge=$('chatTabBadge');
     if(badge && nLidas>0){badge.classList.remove('d-none');badge.innerText=nLidas;}
     else if(badge) badge.classList.add('d-none');
@@ -1793,7 +1812,7 @@ function filtrarVeics(){
 }
 
 function prepOS(mode,id=null){
-  ['osId','osDesc','osDiag','osKm','osPrisma'].forEach(f=>{if($(f))$(f).value='';});
+  ['osId','osDesc','osDiag','osKm'].forEach(f=>{if($(f))$(f).value='';});
   $('osMO').value='0'; $('osTipo').value='carro'; $('osStatus').value='Aguardando';
   $('osData').value=new Date().toISOString().split('T')[0];
   $('containerPecas').innerHTML=''; $('containerServicos').innerHTML='';
@@ -1830,7 +1849,7 @@ function prepOS(mode,id=null){
       atualizarHeaderOS(os.veiculoId||'', os.clienteId||'');
     },80);
     $('osData').value=os.data||''; $('osKm').value=os.km||'';
-    $('osDesc').value=os.desc||''; $('osDiag').value=os.diagnostico||''; if($('osPrisma')) $('osPrisma').value=os.prisma||os.numeroPrisma||'';
+    $('osDesc').value=os.desc||''; $('osDiag').value=os.diagnostico||'';
     $('osMO').value=os.maoObra||0;
     $('chkObs').value=os.chkObs||'';
     _restaurarChkBtns(os);
@@ -2181,7 +2200,6 @@ async function salvarOS(){
     tenantId:J.tid,tipoVeiculo:$v('osTipo'),clienteId:$v('osCliente'),veiculoId:$v('osVeiculo'),
     mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),
     desc:$v('osDesc'),diagnostico:$v('osDiag'),status:$v('osStatus'),
-    prisma:$v('osPrisma'),numeroPrisma:$v('osPrisma'),
     maoObra:parseBR($v('osMO')||0),
     total: t,
     pecas,
@@ -2337,29 +2355,11 @@ function chatEquipeNomeMensagemEquipe(m){
   if (chatEquipeMinhaMensagemEquipe(m)) return J.nome || m.senderName || m.autorNome || 'Equipe';
   return m.senderName || m.autorNome || m.deNome || (m.sender === 'admin' ? 'Admin' : 'Equipe');
 }
-
-function chatEquipeMsgVisivelParaMecanico(m){
-  const uid = chatEquipeUidAtualEquipe();
-  const adminIds = new Set(['admin', String(J.tid || '')].filter(Boolean));
-  const deIds = [m.de, m.senderId, m.autorId].map(v => String(v || '')).filter(Boolean);
-  const paraIds = [m.para, m.destinatarioId, m.to, m.paraId].map(v => String(v || '')).filter(Boolean);
-
-  // Conversa 1:1: mostra somente mensagens deste mecânico com admin/gestor ou mensagens endereçadas diretamente a ele.
-  if (deIds.includes(uid)) return paraIds.some(id => adminIds.has(id) || id === uid);
-  if (paraIds.includes(uid)) return true;
-
-  // Compatibilidade com mensagens antigas que nasceram como "admin -> equipe" mas já vinham com destinatário explícito.
-  const dests = Array.isArray(m.destinatarios) ? m.destinatarios.map(v => String(v || '')) : [];
-  if (dests.includes(uid)) return true;
-
-  return false;
-}
 function renderChat(){
   const msgs=$('chatMsgs');
   if(!msgs) return;
-  const visiveis = dbMsgs.filter(chatEquipeMsgVisivelParaMecanico);
-  if(!visiveis.length){msgs.innerHTML='<div style="text-align:center;color:var(--muted);font-family:var(--fm);font-size:0.72rem;padding:30px;">Sem mensagens ainda</div>';return;}
-  msgs.innerHTML=visiveis.map(m=>{
+  if(!dbMsgs.length){msgs.innerHTML='<div style="text-align:center;color:var(--muted);font-family:var(--fm);font-size:0.72rem;padding:30px;">Sem mensagens ainda</div>';return;}
+  msgs.innerHTML=dbMsgs.map(m=>{
     const minha = chatEquipeMinhaMensagemEquipe(m);
     if(!minha && !m.lidaEquipe && (String(m.para || '') === String(J.fid || '') || String(m.para || '') === 'equipe')) db.collection('chat_equipe').doc(m.id).update({lidaEquipe:true}).catch(()=>{});
     const t=m.ts?new Date(m.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
@@ -2377,8 +2377,6 @@ async function enviarMsg(){
     tenantId:J.tid,
     de:uid,
     para:'admin',
-    destinatarioId:'admin',
-    conversaTipo:'direta_admin_equipe',
     sender:'equipe',
     senderId:uid,
     senderName:J.nome || 'Equipe',

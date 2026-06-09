@@ -272,19 +272,39 @@
     }
   }
 
+  function listaOSDisponivel() {
+    const J = getJ();
+    const fontes = [
+      J.os, J.OS, J.ordens, J.ordensServico, J.dbOS,
+      W.os, W.OS, W.ordens, W.ordensServico, W.dbOS, W.__dbOS, W.listaOS, W.ordensAbertas
+    ];
+    const mapa = new Map();
+    fontes.forEach(src => {
+      if (!Array.isArray(src)) return;
+      src.forEach(item => {
+        if (!item || typeof item !== 'object') return;
+        const id = item.id || item.docId || item._id || item.numero || item.codigo || JSON.stringify(item).slice(0, 80);
+        if (!mapa.has(String(id))) mapa.set(String(id), item);
+      });
+    });
+    return Array.from(mapa.values());
+  }
+
   function encontrarOSPorPlaca(placa) {
     const p = normalizarPlaca(placa);
     if (!p) return null;
-    const J = getJ();
-    const lista = []
-      .concat(Array.isArray(J.os) ? J.os : [])
-      .concat(Array.isArray(W.dbOS) ? W.dbOS : [])
-      .concat(typeof W.thiaEquipeGetOS === 'function' ? (W.thiaEquipeGetOS() || []) : [])
-      .concat(Array.isArray(W.os) ? W.os : [])
-      .filter(Boolean);
+    const lista = listaOSDisponivel();
 
     const candidatas = lista.filter(o => {
-      const op = normalizarPlaca(o.placa || o.veiculo?.placa || o.dadosVeiculo?.placa || '');
+      const op = normalizarPlaca(
+        o.placa ||
+        o.veiculoPlaca ||
+        o.placaVeiculo ||
+        o.veiculo?.placa ||
+        o.dadosVeiculo?.placa ||
+        o.clienteVeiculo?.placa ||
+        ''
+      );
       return op === p;
     });
 
@@ -302,7 +322,7 @@
     partes.push('placa: ' + (os.placa || os.veiculo?.placa || '-'));
     partes.push('veículo: ' + (os.veiculo || os.modelo || os.veiculoModelo || os.veiculo?.modelo || '-'));
     partes.push('cliente: ' + (os.cliente || os.clienteNome || os.nomeCliente || '-'));
-    const relato = os.relato || os.defeito || os.diagnostico || os.observacoes || os.obs || os.problema || '';
+    const relato = os.relato || os.defeito || os.diagnostico || os.diagnosticoTecnico || os.diagnosticoInterno || os.observacoes || os.obs || os.problema || '';
     if (relato) partes.push('relato/diagnóstico anterior: ' + relato);
     if (Array.isArray(os.servicos) && os.servicos.length) {
       partes.push('serviços: ' + os.servicos.slice(0, 8).map(s => s.desc || s.descricao || s.nome || s.servico || '').filter(Boolean).join('; '));
@@ -368,7 +388,7 @@
     const db = getDb();
     if (!db || !db.collection) throw new Error('Banco de dados indisponível para salvar na O.S.');
 
-    let os = ctx.osId ? (getJ().os || []).find(x => x.id === ctx.osId) : null;
+    let os = ctx.osId ? listaOSDisponivel().find(x => x.id === ctx.osId) : null;
     if (!os) os = encontrarOSPorPlaca(placa);
     if (!os || !os.id) throw new Error('Não encontrei O.S. vinculada à placa ' + placa + '.');
 
@@ -395,25 +415,33 @@
       interno: true
     });
 
-    const textoRegistro = registro.resumo || '';
-    const tituloRegistro = tipo === 'teste' ? '[Teste IA Diagnóstico]' : '[Conversa IA Diagnóstico]';
-    const blocoDiagnostico = [
+    let osAtual = os || {};
+    try {
+      const snapAtual = await db.collection('ordens_servico').doc(os.id).get();
+      if (snapAtual && snapAtual.exists) osAtual = Object.assign({}, osAtual, snapAtual.data() || {});
+    } catch (_) {}
+
+    const anteriorDiag = String(
+      osAtual.diagnostico ||
+      osAtual.diagnosticoTecnico ||
+      osAtual.diagnosticoInterno ||
+      ''
+    ).trim();
+
+    const blocoDiag = [
       '',
-      `${tituloRegistro} ${new Date(agora).toLocaleString('pt-BR')} — ${usuario}`,
-      textoRegistro
+      '--- thIAguinho IA • ' + (tipo === 'teste' ? 'Resultado de teste' : 'Conversa/diagnóstico') + ' • ' + new Date(agora).toLocaleString('pt-BR') + ' ---',
+      'Usuário: ' + usuario,
+      'Placa: ' + placa,
+      registro.resumo
     ].filter(Boolean).join('\n');
 
-    const osAtualDoc = await db.collection('ordens_servico').doc(os.id).get().catch(() => null);
-    const osMaisRecente = osAtualDoc && osAtualDoc.exists ? Object.assign({}, os, osAtualDoc.data() || {}) : os;
-    const diagAnterior = String(osMaisRecente.diagnostico || osMaisRecente.diagnosticoTecnico || osMaisRecente.diagnosticoInterno || '').trim();
-    const diagNovo = diagAnterior
-      ? (diagAnterior + '\n\n' + blocoDiagnostico.trim())
-      : blocoDiagnostico.trim();
+    const diagnosticoAtualizado = (anteriorDiag ? anteriorDiag + '\n\n' : '') + blocoDiag;
 
     const patch = {
-      diagnostico: diagNovo,
-      diagnosticoTecnico: diagNovo,
-      diagnosticoInterno: diagNovo,
+      diagnostico: diagnosticoAtualizado,
+      diagnosticoTecnico: diagnosticoAtualizado,
+      diagnosticoInterno: diagnosticoAtualizado,
       iaDiagnosticoRegistros: registros.slice(-80),
       ultimoDiagnosticoIA: registro.resumo.slice(0, 4000),
       timeline,
@@ -692,9 +720,13 @@
     const input = D.getElementById('iaInput');
     if (!input) return;
 
-    const area = input.closest('.ia-input-area') || input.parentElement;
+    const area = input.closest('.ia-input-area') || input.closest('.ia-foot-wrap') || input.parentElement;
     const btns = area ? Array.from(area.querySelectorAll('button')) : [];
-    const btn = btns.find(b => /processar|enviar|perguntar/i.test(b.textContent || '')) || btns[0];
+    const btnProximo = input.nextElementSibling && input.nextElementSibling.tagName === 'BUTTON' ? input.nextElementSibling : null;
+    const btn = btns.find(b => /processar|enviar|perguntar/i.test(b.textContent || '')) ||
+      btnProximo ||
+      btns.find(b => b.id !== 'btnVozIA' && !/voz|falar|microfone|🎙/i.test((b.textContent || '') + ' ' + (b.title || ''))) ||
+      null;
 
     function acionar(ev) {
       try {
