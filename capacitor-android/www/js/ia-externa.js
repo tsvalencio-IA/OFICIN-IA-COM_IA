@@ -278,6 +278,8 @@
     const J = getJ();
     const lista = []
       .concat(Array.isArray(J.os) ? J.os : [])
+      .concat(Array.isArray(W.dbOS) ? W.dbOS : [])
+      .concat(typeof W.thiaEquipeGetOS === 'function' ? (W.thiaEquipeGetOS() || []) : [])
       .concat(Array.isArray(W.os) ? W.os : [])
       .filter(Boolean);
 
@@ -370,29 +372,21 @@
     if (!os) os = encontrarOSPorPlaca(placa);
     if (!os || !os.id) throw new Error('Não encontrei O.S. vinculada à placa ' + placa + '.');
 
-    const refOS = db.collection('ordens_servico').doc(os.id);
-    let osAtual = os;
-    try {
-      const snapOS = await refOS.get();
-      if (snapOS && snapOS.exists) osAtual = Object.assign({ id: os.id }, snapOS.data() || {});
-    } catch (_) {}
-
     const agora = new Date().toISOString();
     const usuario = getJ().nome || getJ().user?.nome || getJ().user?.displayName || 'OFICIN-IA';
-    const resumoRegistro = String(textoExtra || '').trim() || ultimasMensagensParaResumo();
     const registro = {
       tipo: tipo || 'conversa',
       placa,
       usuario,
       createdAt: agora,
       origem: location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis',
-      resumo: resumoRegistro
+      resumo: String(textoExtra || '').trim() || ultimasMensagensParaResumo()
     };
 
-    const registros = Array.isArray(osAtual.iaDiagnosticoRegistros) ? osAtual.iaDiagnosticoRegistros.slice() : [];
+    const registros = Array.isArray(os.iaDiagnosticoRegistros) ? os.iaDiagnosticoRegistros.slice() : [];
     registros.push(registro);
 
-    const timeline = Array.isArray(osAtual.timeline) ? osAtual.timeline.slice() : [];
+    const timeline = Array.isArray(os.timeline) ? os.timeline.slice() : [];
     timeline.push({
       dt: agora,
       user: usuario,
@@ -401,42 +395,36 @@
       interno: true
     });
 
-    const dataBR = new Date(agora).toLocaleString('pt-BR');
-    const tituloBloco = tipo === 'teste'
-      ? `TESTE / RESULTADO REGISTRADO COM thIAguinho IA`
-      : `CONVERSA / DIAGNÓSTICO REGISTRADO COM thIAguinho IA`;
+    const textoRegistro = registro.resumo || '';
+    const tituloRegistro = tipo === 'teste' ? '[Teste IA Diagnóstico]' : '[Conversa IA Diagnóstico]';
     const blocoDiagnostico = [
-      `[${dataBR}] ${tituloBloco}`,
-      `Usuário: ${usuario}`,
-      resumoRegistro
+      '',
+      `${tituloRegistro} ${new Date(agora).toLocaleString('pt-BR')} — ${usuario}`,
+      textoRegistro
     ].filter(Boolean).join('\n');
 
-    const diagAtual = String(
-      osAtual.diagnostico ||
-      osAtual.diagnosticoTecnico ||
-      osAtual.diagnosticoInterno ||
-      ''
-    ).trim();
-
-    const diagnosticoFinal = diagAtual
-      ? `${diagAtual}\n\n${blocoDiagnostico}`
-      : blocoDiagnostico;
+    const osAtualDoc = await db.collection('ordens_servico').doc(os.id).get().catch(() => null);
+    const osMaisRecente = osAtualDoc && osAtualDoc.exists ? Object.assign({}, os, osAtualDoc.data() || {}) : os;
+    const diagAnterior = String(osMaisRecente.diagnostico || osMaisRecente.diagnosticoTecnico || osMaisRecente.diagnosticoInterno || '').trim();
+    const diagNovo = diagAnterior
+      ? (diagAnterior + '\n\n' + blocoDiagnostico.trim())
+      : blocoDiagnostico.trim();
 
     const patch = {
-      diagnostico: diagnosticoFinal,
-      diagnosticoTecnico: diagnosticoFinal,
-      diagnosticoInterno: diagnosticoFinal,
+      diagnostico: diagNovo,
+      diagnosticoTecnico: diagNovo,
+      diagnosticoInterno: diagNovo,
       iaDiagnosticoRegistros: registros.slice(-80),
       ultimoDiagnosticoIA: registro.resumo.slice(0, 4000),
       timeline,
       updatedAt: agora
     };
 
-    await refOS.update(patch);
+    await db.collection('ordens_servico').doc(os.id).update(patch);
 
     Object.assign(os, patch);
     salvarContextoAtivo(Object.assign({}, ctx, { osId: os.id }));
-    return Object.assign({}, os, patch);
+    return os;
   }
 
   W.thiaDiagSalvarNaOS = async function(tipo) {

@@ -1012,8 +1012,7 @@ window.renderKanban = function() {
     
     const identBusca = identidadeVeiculoOS(o, v);
     const modeloBusca = modeloVeiculoOS(o, v).toLowerCase();
-    const prismaBusca = String(o.prisma || o.numeroPrisma || '').toLowerCase();
-    if (busca && !(v.placa||'').toLowerCase().includes(busca) && !(identBusca.prefixo||'').toLowerCase().includes(busca) && !modeloBusca.includes(busca) && !prismaBusca.includes(busca) && !(c.nome||'').toLowerCase().includes(busca) && !(o.placa||'').toLowerCase().includes(busca)) return;
+    if (busca && !(v.placa||'').toLowerCase().includes(busca) && !(identBusca.prefixo||'').toLowerCase().includes(busca) && !modeloBusca.includes(busca) && !(c.nome||'').toLowerCase().includes(busca) && !(o.placa||'').toLowerCase().includes(busca) && !(o.prisma||o.numeroPrisma||'').toString().toLowerCase().includes(busca)) return;
     if (filtroNicho && v.tipo !== filtroNicho) return;
     if (st === 'Entregue' && buscaEntregues) {
       const txtEntregue = [identBusca.placa, identBusca.prefixo, c.nome, o.cliente, o.desc, o.finalizacaoLabel, o.finalizacaoOS, o.entreguePara]
@@ -1046,9 +1045,8 @@ window.renderKanban = function() {
       const ident = identidadeVeiculoOS(os, v);
       const placaFmt = esc(ident.placa || 'S/PLACA');
       const prefixoFmt = esc(ident.prefixo || '');
-      const modeloFmt = esc(modeloVeiculoOS(os, v));
       const prismaFmt = esc(os.prisma || os.numeroPrisma || '');
-      const prismaHtml = prismaFmt ? `<div style="display:inline-flex;align-items:center;gap:4px;margin-bottom:4px;padding:3px 8px;border:1px solid rgba(0,255,136,.35);background:rgba(0,255,136,.10);border-radius:999px;font-family:var(--fm);font-size:.58rem;font-weight:900;letter-spacing:.9px;color:var(--success);">PRISMA ${prismaFmt}</div>` : '';
+      const modeloFmt = esc(modeloVeiculoOS(os, v));
       const UOS = window.JarvisOSUtils || window.JOS || {};
       const resumoValores = UOS.getBudgetSummary
         ? UOS.getBudgetSummary(os, c, J.financeiro)
@@ -1083,8 +1081,8 @@ window.renderKanban = function() {
       return `<div class="k-card" style="border-left-color:${cor}" onclick="window.prepOS('edit','${os.id}');abrirModal('modalOS')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:6px;">
             <div>
-              ${prismaHtml}
               ${prefixoFmt ? `<div style="font-family:var(--fm);font-size:.58rem;color:var(--warn);letter-spacing:.8px;font-weight:800;margin-bottom:2px;">PREFIXO ${prefixoFmt}</div>` : ''}
+              ${prismaFmt ? `<div style="font-family:var(--fm);font-size:.58rem;color:var(--cyan);letter-spacing:.8px;font-weight:800;margin-bottom:2px;">PRISMA ${prismaFmt}</div>` : ''}
               <div class="k-placa" style="color:${cor};margin:0;font-size:1rem;">${placaFmt}</div>
               ${modeloFmt ? `<div class="k-modelo" title="${modeloFmt}" style="font-family:var(--fm);font-size:.62rem;color:var(--muted2);letter-spacing:.45px;font-weight:700;margin-top:2px;max-width:126px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${modeloFmt}</div>` : ''}
             </div>
@@ -2687,11 +2685,6 @@ window.salvarOS = async function() {
     payload.prefixo = String(_prefixoOS).toUpperCase();
     payload.prefixoVeiculo = payload.prefixo;
   }
-  if (document.getElementById('osPrisma')) {
-    const _prismaOS = String($v('osPrisma') || '').trim();
-    payload.prisma = _prismaOS;
-    payload.numeroPrisma = _prismaOS;
-  }
   if (_veiculoSelecionadoOS?.id) {
     payload.veiculoSnapshot = {
       id: _veiculoSelecionadoOS.id,
@@ -2720,6 +2713,7 @@ window.salvarOS = async function() {
   if ($v('osMec')) payload.mecId = $v('osMec');
   if ($v('osData')) payload.data = $v('osData');
   if ($v('osKm')) payload.km = $v('osKm');
+  if ($v('osPrisma')) { payload.prisma = $v('osPrisma'); payload.numeroPrisma = $v('osPrisma'); }
   if ($v('osEntregueA')) payload.entreguePara = $v('osEntregueA');
   if (payload.status === 'Entregue' && !payload.entreguePara) {
     const retiradoPor = solicitarRetiradaOS(_oldOSPreservar || payload);

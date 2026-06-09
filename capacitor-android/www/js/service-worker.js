@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260609-hotfix-prisma-chat-os-v2';
+const CACHE_VERSION = 'oficinia-v20260609-equipe-prisma-chatfix-prisma-chat-eqdiag-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
