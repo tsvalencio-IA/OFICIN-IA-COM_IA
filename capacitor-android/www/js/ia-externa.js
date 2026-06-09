@@ -309,12 +309,23 @@
     const analise = analisarIntencao(message);
 
     if (analise.tipo === 'LOCAL') {
+      // Consulta interna pura: devolve para o motor original do Jarvis/Equipe.
+      // Importante: em várias telas o motor local expõe iaPerguntar(), não thiaIAAsk().
       if (typeof original.thiaIAAsk === 'function') {
         if (input) input.value = message;
         return original.thiaIAAsk(inputId || 'iaInput', perfil);
       }
+      if (typeof original.iaPerguntar === 'function') {
+        if (input) input.value = message;
+        return original.iaPerguntar();
+      }
       addUser(message);
-      addBot('Preciso do motor local carregado para responder esta consulta interna.', true);
+      const local = respostaLocalTexto(message, perfil);
+      if (local) {
+        addBot(esc(local).replace(/\n/g, '<br>'), true);
+      } else {
+        addBot('Preciso do motor local carregado para responder esta consulta interna.', true);
+      }
       return;
     }
 
@@ -392,11 +403,52 @@
   };
   W.iaChip = function (texto) { return setPromptAndAsk(texto, location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis'); };
 
+  function instalarHookProcessarDiagnostico() {
+    const input = D.getElementById('iaInput');
+    if (!input) return;
+
+    const area = input.closest('.ia-input-area') || input.parentElement;
+    const btns = area ? Array.from(area.querySelectorAll('button')) : [];
+    const btn = btns.find(b => /processar|enviar|perguntar/i.test(b.textContent || '')) || btns[0];
+
+    function acionar(ev) {
+      try {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+        }
+      } catch (_) {}
+      return chamarIA('iaInput', location.pathname.toLowerCase().includes('equipe') ? 'equipe' : 'jarvis');
+    }
+
+    if (btn && btn.dataset.thiaDiagHookFinal !== '1') {
+      btn.dataset.thiaDiagHookFinal = '1';
+      btn.onclick = acionar;
+      btn.addEventListener('click', acionar, true);
+      btn.textContent = btn.textContent || 'PROCESSAR';
+    }
+
+    if (input.dataset.thiaDiagEnterHookFinal !== '1') {
+      input.dataset.thiaDiagEnterHookFinal = '1';
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') acionar(ev);
+      }, true);
+    }
+
+    W.iaPerguntar = function () { return chamarIA('iaInput', 'jarvis'); };
+    W.iaEnviar = function () { return chamarIA('iaInput', 'equipe'); };
+    W.thiaIAAsk = chamarIA;
+  }
+
   D.addEventListener('DOMContentLoaded', function () {
     setTimeout(function () {
       carregarConfigTenant(false);
       atualizarBarra();
       restaurarConversaVisual();
+      instalarHookProcessarDiagnostico();
     }, 150);
+    setTimeout(instalarHookProcessarDiagnostico, 700);
+    setTimeout(instalarHookProcessarDiagnostico, 1600);
   });
 })();

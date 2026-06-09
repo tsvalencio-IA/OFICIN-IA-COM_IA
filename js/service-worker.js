@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260608-correcao-cirurgica-definitiva-ia-chat-equipe';
+const CACHE_VERSION = 'oficinia-20260609-hotfix-hook-processar-ia-robo';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
