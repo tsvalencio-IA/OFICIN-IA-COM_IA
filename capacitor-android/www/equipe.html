@@ -1131,6 +1131,13 @@ async function _avisarAdminPronto(os) {
       deNome: J.nome || 'Equipe',
       para: 'admin',
       sender: 'equipe',
+      senderId: J.fid || 'equipe',
+      senderName: J.nome || 'Equipe',
+      senderRole: J.cargo || J.role || 'equipe',
+      autorId: J.fid || 'equipe',
+      autorNome: J.nome || 'Equipe',
+      autorTipo: 'equipe',
+      autorCargo: J.cargo || J.role || 'equipe',
       msg: `OS #${String(os.id || '').slice(-6).toUpperCase()} marcada como PRONTO pela equipe. Cliente: ${cliente?.nome || 'não identificado'} | Veículo: ${placa}${modelo}. Conferir e enviar aviso ao cliente pelo Jarvis.`,
       lidaAdmin: false,
       lidaEquipe: true,
@@ -2307,15 +2314,28 @@ function renderTimeline(){
 // ============================================================
 // CHAT EQUIPE ↔ ADMIN
 // ============================================================
+function chatEquipeUidAtualEquipe(){
+  return String(J.fid || sessionStorage.getItem('j_fid') || J.uid || J.nome || 'equipe');
+}
+function chatEquipeMinhaMensagemEquipe(m){
+  const uid = chatEquipeUidAtualEquipe();
+  const ids = [m.senderId, m.autorId, m.de].map(v => String(v || '')).filter(Boolean);
+  return ids.includes(uid);
+}
+function chatEquipeNomeMensagemEquipe(m){
+  if (chatEquipeMinhaMensagemEquipe(m)) return J.nome || m.senderName || m.autorNome || 'Equipe';
+  return m.senderName || m.autorNome || m.deNome || (m.sender === 'admin' ? 'Admin' : 'Equipe');
+}
 function renderChat(){
   const msgs=$('chatMsgs');
   if(!msgs) return;
   if(!dbMsgs.length){msgs.innerHTML='<div style="text-align:center;color:var(--muted);font-family:var(--fm);font-size:0.72rem;padding:30px;">Sem mensagens ainda</div>';return;}
   msgs.innerHTML=dbMsgs.map(m=>{
-    if(m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid) db.collection('chat_equipe').doc(m.id).update({lidaEquipe:true}).catch(()=>{});
+    const minha = chatEquipeMinhaMensagemEquipe(m);
+    if(!minha && !m.lidaEquipe && (String(m.para || '') === String(J.fid || '') || String(m.para || '') === 'equipe')) db.collection('chat_equipe').doc(m.id).update({lidaEquipe:true}).catch(()=>{});
     const t=m.ts?new Date(m.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
-    const side=m.sender==='equipe'?'admin':'cliente';
-    const nome=m.sender==='equipe'?J.nome:'Admin';
+    const side=minha?'admin':'cliente';
+    const nome=chatEquipeNomeMensagemEquipe(m);
     const conteudo = formatarMidiaChat(m.msg);
     return `<div class="chat-msg ${side}"><strong style="font-size:0.65rem;color:${side==='admin'?'var(--cyan)':'var(--muted2)'}">${_escapeHtml(nome)}</strong><br>${conteudo}<div class="ts">${t}</div></div>`;
   }).join('');
@@ -2323,8 +2343,19 @@ function renderChat(){
 }
 async function enviarMsg(){
   const msg=$v('chatInput'); if(!msg) return;
+  const uid = chatEquipeUidAtualEquipe();
   await db.collection('chat_equipe').add({
-    tenantId:J.tid,de:J.fid,para:'admin',sender:'equipe',
+    tenantId:J.tid,
+    de:uid,
+    para:'admin',
+    sender:'equipe',
+    senderId:uid,
+    senderName:J.nome || 'Equipe',
+    senderRole:J.cargo || J.role || 'equipe',
+    autorId:uid,
+    autorNome:J.nome || 'Equipe',
+    autorTipo:'equipe',
+    autorCargo:J.cargo || J.role || 'equipe',
     msg,lidaAdmin:false,lidaEquipe:true,ts:Date.now()
   });
   $('chatInput').value='';

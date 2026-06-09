@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'thiaguinho-20260608-sistema-completo-vercel-robo-conversa-estoque-fix';
+const CACHE_VERSION = 'oficinia-20260608-correcao-cirurgica-definitiva-ia-chat-equipe';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -155,5 +155,3 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* Powered by thIAguinho Soluções Digitais */
-
-// cache bump profissional robo 2026-06-08

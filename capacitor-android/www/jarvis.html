@@ -1969,13 +1969,19 @@ function autorChatJarvis(){
   const actorType = sessionStorage.getItem('j_actor_type') || '';
   const cargoNorm = _normCargoJarvis(cargo);
   const veioDaEquipe = actorType === 'equipe' || (!!fid && !['dono','proprietario','owner'].includes(cargoNorm));
+  const id = veioDaEquipe ? fid : (J.tid || 'admin');
+  const nome = veioDaEquipe ? (J.nome || 'Equipe') : (J.tnome || J.nome || 'Admin');
+  const role = veioDaEquipe ? (cargo || 'equipe') : 'admin';
   return {
-    de: veioDaEquipe ? fid : J.tid,
-    sender: 'admin',
+    de: id,
+    sender: veioDaEquipe ? 'equipe' : 'admin',
+    senderId: id,
+    senderName: nome,
+    senderRole: role,
     autorTipo: veioDaEquipe ? 'equipe' : 'admin',
-    autorId: veioDaEquipe ? fid : J.tid,
-    autorNome: veioDaEquipe ? (J.nome || 'Equipe') : (J.tnome || J.nome || 'Admin'),
-    autorCargo: veioDaEquipe ? (cargo || 'equipe') : 'admin'
+    autorId: id,
+    autorNome: nome,
+    autorCargo: role
   };
 }
 
@@ -2636,14 +2642,20 @@ window.abrirChatEquipe = function(fid, nome) {
     .forEach(m => db.collection('chat_equipe').doc(m.id).update(chatEquipeSouEquipe() ? {lidaEquipe:true} : {lidaAdmin:true}).catch(()=>{}));
 };
 
+function chatEquipeMinhaMensagemJarvis(m){
+  const meus = chatEquipeIdSet(chatEquipeMeuId());
+  const ids = [m.senderId, m.autorId, m.de].map(v => String(v || '')).filter(Boolean);
+  return ids.some(id => meus.has(id));
+}
+
 window.renderChatEquipeMsgs = function(fid) {
   const box = $('chatEquipeMsgs');
   if (!box) return;
-  const meus = chatEquipeIdSet(chatEquipeMeuId());
   const msgs = chatEquipeMsgsDoContato(fid);
   box.innerHTML = msgs.map(m => {
-    const lado = meus.has(String(m.de || '')) ? 'admin' : 'cliente';
-    const nome = m.autorNome || chatEquipeNomePorId(m.de);
+    const minha = chatEquipeMinhaMensagemJarvis(m);
+    const lado = minha ? 'admin' : 'cliente';
+    const nome = m.senderName || m.autorNome || chatEquipeNomePorId(m.senderId || m.autorId || m.de);
     const ts = m.ts ? new Date(m.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : '';
     const conteudo = window.formatarMidiaChatJ ? window.formatarMidiaChatJ(m.msg) : (m.msg||'').replace(/\n/g,'<br>');
     return `<div class="chat-msg ${lado}">
@@ -2664,7 +2676,10 @@ window.enviarChatEquipe = async function() {
     tenantId: J.tid,
     de: autor.de,
     para: chatEquipeParaAtual(),
-    sender: chatEquipeSenderAtual(),
+    sender: autor.sender || chatEquipeSenderAtual(),
+    senderId: autor.senderId || autor.autorId || autor.de,
+    senderName: autor.senderName || autor.autorNome,
+    senderRole: autor.senderRole || autor.autorCargo,
     autorTipo: autor.autorTipo,
     autorId: autor.autorId,
     autorNome: autor.autorNome,
@@ -3623,6 +3638,9 @@ window.togglePTT = async function(btnId, destino){
             autorId: autor.autorId,
             autorNome: autor.autorNome,
             autorCargo: autor.autorCargo,
+            senderId: autor.senderId || autor.autorId || autor.de,
+            senderName: autor.senderName || autor.autorNome,
+            senderRole: autor.senderRole || autor.autorCargo,
             msg: payload,
             tipo: 'audio',
             url: data.secure_url,
@@ -3638,6 +3656,9 @@ window.togglePTT = async function(btnId, destino){
             autorId: autor.autorId,
             autorNome: autor.autorNome,
             autorCargo: autor.autorCargo,
+            senderId: autor.senderId || autor.autorId || autor.de,
+            senderName: autor.senderName || autor.autorNome,
+            senderRole: autor.senderRole || autor.autorCargo,
             msg: payload,
             tipo: 'audio',
             url: data.secure_url,
@@ -3733,6 +3754,9 @@ window.enviarArquivoChat = async function(input){
       autorId: autor.autorId,
       autorNome: autor.autorNome,
       autorCargo: autor.autorCargo,
+      senderId: autor.senderId || autor.autorId || autor.de,
+      senderName: autor.senderName || autor.autorNome,
+      senderRole: autor.senderRole || autor.autorCargo,
       msg: msgTexto,
       tipo: tipo,
       url: data.secure_url,
@@ -3789,6 +3813,9 @@ window.enviarArquivoChatEquipe = async function(input){
       autorId: autor.autorId,
       autorNome: autor.autorNome,
       autorCargo: autor.autorCargo,
+      senderId: autor.senderId || autor.autorId || autor.de,
+      senderName: autor.senderName || autor.autorNome,
+      senderRole: autor.senderRole || autor.autorCargo,
       msg: msgTexto,
       tipo: tipo,
       url: data.secure_url,
