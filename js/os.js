@@ -2690,6 +2690,25 @@ window.salvarOS = async function() {
   payload.totalGuincho = guinchoPayload.ativo ? _numGuinchoOS(guinchoPayload.total || 0) : 0;
 
   const _oldOSPreservar = osId ? (window.J?.os || []).find(x => x.id === osId) : null;
+
+  // Prisma da O.S.: persiste enquanto o veículo estiver no pátio.
+  // Ao entregar, preserva o último número no histórico e libera o prisma para reutilização.
+  const _prismaAnteriorOS = String(_oldOSPreservar?.prisma || _oldOSPreservar?.numeroPrisma || '').trim();
+  const _prismaAtualOS = String(prismaInformadoOS || _prismaAnteriorOS || '').trim();
+  payload.prisma = _prismaAtualOS;
+  payload.numeroPrisma = _prismaAtualOS;
+  if (payload.status === 'Entregue' && _prismaAtualOS) {
+    payload.prismaHistorico = _oldOSPreservar?.prismaHistorico || _oldOSPreservar?.numeroPrismaHistorico || _prismaAtualOS;
+    payload.numeroPrismaHistorico = _oldOSPreservar?.numeroPrismaHistorico || _oldOSPreservar?.prismaHistorico || _prismaAtualOS;
+    payload.prismaLiberado = true;
+    payload.prismaLiberadoEm = new Date().toISOString();
+    payload.prismaLiberadoPor = J.nome || 'Gestor';
+    payload.prisma = '';
+    payload.numeroPrisma = '';
+  } else if (_prismaAtualOS) {
+    payload.prismaLiberado = false;
+  }
+
   const _veiculoSelecionadoOS = (window.J?.veiculos || []).find(v => v.id === $v('osVeiculo')) || {};
   if ($v('osPlaca')) payload.placa = $v('osPlaca').toUpperCase();
   else if (_veiculoSelecionadoOS?.placa) payload.placa = String(_veiculoSelecionadoOS.placa || '').toUpperCase();
