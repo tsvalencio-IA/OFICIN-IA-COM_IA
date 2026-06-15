@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260609-hotfix-st-patio-kanban';
+const CACHE_VERSION = 'oficinia-20260615-fluxo-pecas-reais-os-cliente-comum';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

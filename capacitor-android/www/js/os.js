@@ -391,8 +391,12 @@ function aplicarPecaEstoqueSelecionadaOS(row, item, marcarBaixa) {
   row.dataset.pecaFornecedor = fornecedor;
   row.dataset.pecaNf = nf;
   row.dataset.pecaDataCompra = dataCompra;
+  const codigoInput = row.querySelector('.peca-codigo');
+  const descInput = row.querySelector('.peca-desc-livre');
   const custoInput = row.querySelector('.peca-custo');
   const vendaInput = row.querySelector('.peca-venda');
+  if (codigoInput && (marcarBaixa || !String(codigoInput.value || '').trim())) codigoInput.value = codigo;
+  if (descInput && (marcarBaixa || !String(descInput.value || '').trim() || descricaoPecaGeradaSistemaOS(descInput.value))) descInput.value = desc;
   if (custoInput && (marcarBaixa || !String(custoInput.value || '').trim() || numBR(custoInput.value) <= 0)) custoInput.value = custo.toFixed(2).replace('.', ',');
   if (vendaInput && (marcarBaixa || !String(vendaInput.value || '').trim() || numBR(vendaInput.value) <= 0)) vendaInput.value = venda.toFixed(2).replace('.', ',');
   const baixa = row.querySelector('.peca-baixa-real');
@@ -2136,17 +2140,19 @@ window.adicionarPecaOS = function() {
     `;
   } else {
     // Cliente normal — usa estoque, mas permite peça avulsa se não tiver no estoque
-    sel.style.cssText = 'display:grid;grid-template-columns:minmax(260px,1fr) 80px 90px 90px 190px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
+    sel.style.cssText = 'display:grid;grid-template-columns:minmax(220px,1.2fr) 110px minmax(220px,1.4fr) 70px 90px 90px 170px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.18);';
     const optsCompleto = '<option value="">Selecionar peca...</option>'
       + J.estoque.filter(p => (p.qtd || 0) > 0).map(p => optionPecaEstoqueOS(p, false)).join('')
       + '<option value="__avulsa__" data-venda="0" data-desc="">+ Peca nao cadastrada (digitar manualmente)</option>';
     sel.innerHTML = `
-      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${optsCompleto}</select>
+      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)" title="Peça real/estoque vinculada à O.S.">${optsCompleto}</select>
+      <input type="text" class="j-input peca-codigo" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código que aparecerá na O.S. do cliente. Pode ser editado sem alterar o registro real/NF.">
+      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição que aparecerá na O.S. do cliente. Pode ser editada sem alterar o registro real/NF.">
       <input type="number" class="j-input peca-qtd" value="1" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="0,00" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="0,00" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
-      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" checked style="width:auto;min-height:0;"> usar como peça real / baixar estoque</label>
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
+      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" checked style="width:auto;min-height:0;">baixar/registrar real</label>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
       <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
@@ -2188,31 +2194,33 @@ window.renderPecaOSRow = function(p) {
     const custo = numBR(p.custo || p.c || 0);
     const qtd = numBR(p.qtd || p.q || 1) || 1;
     div.dataset.pecaAvulsa = '1';
-    div.style.cssText = 'display:grid;grid-template-columns:1fr 80px 90px 90px 32px;gap:8px;align-items:center;background:rgba(255,165,0,0.06);padding:4px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
+    div.style.cssText = 'display:grid;grid-template-columns:120px 1fr 80px 90px 90px 32px;gap:8px;align-items:center;background:rgba(255,165,0,0.06);padding:4px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
     div.innerHTML = `
-      <input type="hidden" class="peca-codigo" value="${escOS(p.codigo || '')}">
-      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.desc || '')}" placeholder="DescriÃ§Ã£o da peÃ§a" oninput="window.calcOSTotal()" title="DescriÃ§Ã£o exata digitada na O.S.">
+      <input type="text" class="j-input peca-codigo" value="${escOS(p.codigo || '')}" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código exibido na O.S. do cliente. A edição não altera NF/peça real.">
+      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.desc || '')}" placeholder="DescriÃ§Ã£o da peÃ§a" oninput="window.calcOSTotal()" title="DescriÃ§Ã£o exata exibida na O.S. do cliente. A edição não altera NF/peça real.">
       <input type="number" class="j-input peca-qtd" value="${qtd}" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peÃ§a no orÃ§amento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="${custo.toFixed(2).replace('.', ',')}" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitÃ¡rio interno da peÃ§a">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="${vBruto.toFixed(2).replace('.', ',')}" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitÃ¡rio de venda/orÃ§amento da peÃ§a">
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">âœ•</button>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
     `;
   } else {
     // Cliente normal (estoque)
     const vBruto = numBR(p.venda || p.v || 0);
-    div.style.cssText = 'display:grid;grid-template-columns:minmax(260px,1fr) 80px 90px 90px 190px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
+    div.style.cssText = 'display:grid;grid-template-columns:minmax(220px,1.2fr) 110px minmax(220px,1.4fr) 70px 90px 90px 170px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.18);';
     div.dataset.pecaCodigo = p.codigo || '';
     div.dataset.pecaFornecedor = p.fornecedor || p.fornecedorNome || '';
     div.dataset.pecaNf = p.nf || p.nfNumero || '';
     div.dataset.pecaDataCompra = p.dataCompra || '';
-    const opts = '<option value="">' + escOS(p.desc || 'Selecionar peca...') + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => optionPecaEstoqueOS(x, x.id === p.estoqueId)).join('');
+    const opts = '<option value="">' + escOS(p.desc || 'Selecionar peca...') + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => optionPecaEstoqueOS(x, x.id === p.estoqueId)).join('') + '<option value="__avulsa__">+ Peca nao cadastrada</option>';
     div.innerHTML = `
-      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${opts}</select>
+      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)" title="Peça real/estoque vinculada à O.S.">${opts}</select>
+      <input type="text" class="j-input peca-codigo" value="${escOS(p.codigo || '')}" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código que aparecerá na O.S. do cliente. Pode ser editado sem alterar o registro real/NF.">
+      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.desc || '')}" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição que aparecerá na O.S. do cliente. Pode ser editada sem alterar o registro real/NF.">
       <input type="number" class="j-input peca-qtd" value="${p.qtd || p.q || 1}" min="1" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="${numBR(p.custo || p.c || 0).toFixed(2).replace('.', ',')}" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="${vBruto.toFixed(2).replace('.', ',')}" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
-      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" ${p.baixarEstoqueReal === true ? 'checked' : ''} style="width:auto;min-height:0;"> usar como peça real / baixar estoque</label>
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
+      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" ${p.baixarEstoqueReal === true ? 'checked' : ''} style="width:auto;min-height:0;">baixar/registrar real</label>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
       <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
@@ -2226,13 +2234,14 @@ window.selecionarPecaOS = function(sel) {
     // Transforma a linha em entrada manual (igual ao modo governo, mas sem código original)
     const row = sel.parentElement;
     row.dataset.pecaAvulsa = '1';
-    row.style.cssText = 'display:grid;grid-template-columns:1fr 80px 90px 90px 32px;gap:8px;align-items:center;background:rgba(255,165,0,0.06);padding:4px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
+    row.style.cssText = 'display:grid;grid-template-columns:120px 1fr 80px 90px 90px 32px;gap:8px;align-items:center;background:rgba(255,165,0,0.06);padding:4px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
     row.innerHTML = `
-      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição da peça" oninput="window.calcOSTotal()">
+      <input type="text" class="j-input peca-codigo" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código exibido na O.S. do cliente.">
+      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição da peça" oninput="window.calcOSTotal()" title="Descrição exibida na O.S. do cliente.">
       <input type="number" class="j-input peca-qtd" value="1" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="0,00" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="0,00" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
     `;
     row.querySelector('.peca-desc-livre').focus();
   } else {

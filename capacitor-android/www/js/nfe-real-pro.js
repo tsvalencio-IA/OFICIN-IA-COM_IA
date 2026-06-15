@@ -1253,14 +1253,14 @@
     return out;
   }
   function osTemFluxoCiliaOuOficialNF(os){
-    const pecas = Array.isArray(os?.pecas) ? os.pecas : [];
-    const servicos = Array.isArray(os?.servicos) ? os.servicos : [];
-    const temCilia = pecas.some(p => p && (p.origem === 'cilia' || p.ciliaImportado === true || p.ciliaPieceIndex !== undefined || p.ciliaGrupo || p.ciliaAgrupador)) ||
-      servicos.some(s => s && (s.origemServico === 'cilia_tabela_tempa' || s.origemServico === 'cilia_tabela_tempa_editado' || s.ciliaPieceIndex !== undefined));
-    if (temCilia) return true;
+    // Mantem o nome da funcao para nao tocar nos outros pontos do fluxo.
+    // Regra ajustada conforme operacao: somente cliente oficial/governo bloqueia
+    // o lançamento automatico da peça da NF nas pecas visiveis da O.S.
+    // Fluxo Cilia/importado, por si so, nao bloqueia cliente comum.
     const cliente = (W.J?.clientes || []).find(c => String(c.id) === String(os?.clienteId || os?.cliente || '')) || {};
     return !!(os?.clienteOficial || os?.orgaoPublico || os?.gov || cliente.clienteOficial || cliente.orgaoPublico || cliente.publico || cliente.gov);
   }
+
   function pecaOrcamentoFromNF(pecaReal){
     const desc = pecaReal.desc || pecaReal.descricao || '';
     const codigo = pecaReal.codigoComercial || pecaReal.codigoFornecedor || pecaReal.codigo || '';
