@@ -1252,15 +1252,28 @@
     });
     return out;
   }
-  function osTemFluxoCiliaOuOficialNF(os){
-    // Mantem o nome da funcao para nao tocar nos outros pontos do fluxo.
-    // Regra ajustada conforme operacao: somente cliente oficial/governo bloqueia
-    // o lançamento automatico da peça da NF nas pecas visiveis da O.S.
-    // Fluxo Cilia/importado, por si so, nao bloqueia cliente comum.
+  function osClienteOficialNF(os){
+    // Regra cirúrgica: orçamento importado/Cília NÃO torna cliente oficial.
+    // Cliente comum com Cília ou PDF continua recebendo peça da NF em Peças da O.S.
     const cliente = (W.J?.clientes || []).find(c => String(c.id) === String(os?.clienteId || os?.cliente || '')) || {};
-    return !!(os?.clienteOficial || os?.orgaoPublico || os?.gov || cliente.clienteOficial || cliente.orgaoPublico || cliente.publico || cliente.gov);
+    const nomeCliente = String(cliente.nome || os?.clienteNome || os?.cliente || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!nomeCliente || nomeCliente === 'CONSUMIDOR') return false;
+    const tipoCliente = String(cliente.tipoCliente || os?.tipoCliente || os?.clienteTipo || '').toLowerCase();
+    if (tipoCliente === 'governo' || tipoCliente === 'oficial') return true;
+    const raw = JSON.stringify({
+      osClienteOficial: os?.clienteOficial,
+      osOrgaoPublico: os?.orgaoPublico,
+      osGov: os?.gov,
+      osFiscalContrato: os?.fiscalContrato,
+      osContrato: os?.contrato,
+      clienteOficial: cliente.clienteOficial,
+      clienteOrgaoPublico: cliente.orgaoPublico,
+      clientePublico: cliente.publico,
+      clienteGov: cliente.gov,
+      clienteTipo: cliente.tipoCliente
+    }).toUpperCase();
+    return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA/.test(raw);
   }
-
   function pecaOrcamentoFromNF(pecaReal){
     const desc = pecaReal.desc || pecaReal.descricao || '';
     const codigo = pecaReal.codigoComercial || pecaReal.codigoFornecedor || pecaReal.codigo || '';
@@ -1342,7 +1355,7 @@
         ultimaEntradaNFVinculada: nfPayload.numero || nfRef.id
       };
       osUpdate.pecasReais = mergePecasReaisNF(entry.os.pecasReais, pecas);
-      if (!osTemFluxoCiliaOuOficialNF(entry.os)) {
+      if (!osClienteOficialNF(entry.os)) {
         const pecasOrcamento = pecas.map(pecaOrcamentoFromNF).filter(Boolean);
         if (pecasOrcamento.length) osUpdate.pecas = mergePecasOrcamentoNF(entry.os.pecas, pecasOrcamento);
       }

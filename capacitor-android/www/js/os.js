@@ -396,7 +396,7 @@ function aplicarPecaEstoqueSelecionadaOS(row, item, marcarBaixa) {
   const custoInput = row.querySelector('.peca-custo');
   const vendaInput = row.querySelector('.peca-venda');
   if (codigoInput && (marcarBaixa || !String(codigoInput.value || '').trim())) codigoInput.value = codigo;
-  if (descInput && (marcarBaixa || !String(descInput.value || '').trim() || descricaoPecaGeradaSistemaOS(descInput.value))) descInput.value = desc;
+  if (descInput && (marcarBaixa || !String(descInput.value || '').trim())) descInput.value = desc;
   if (custoInput && (marcarBaixa || !String(custoInput.value || '').trim() || numBR(custoInput.value) <= 0)) custoInput.value = custo.toFixed(2).replace('.', ',');
   if (vendaInput && (marcarBaixa || !String(vendaInput.value || '').trim() || numBR(vendaInput.value) <= 0)) vendaInput.value = venda.toFixed(2).replace('.', ',');
   const baixa = row.querySelector('.peca-baixa-real');
@@ -1690,7 +1690,8 @@ window.prepOS = function(mode, id = null) {
     if(typeof window.renderItensOS === 'function') window.renderItensOS();
     
     const servicosOS = Array.isArray(o.servicos) ? o.servicos : [];
-    const pecasOS = Array.isArray(o.pecas) ? o.pecas : [];
+    const pecasOS = osReconciliarPecasReaisParaClienteComumOS(o, Array.isArray(o.pecas) ? o.pecas : [], Array.isArray(o.pecasReais) ? o.pecasReais : []);
+    o.pecas = pecasOS;
     const servicosCiliaPorPeca = {};
     const servicosNormais = [];
     servicosOS.forEach(s => {
@@ -2140,24 +2141,162 @@ window.adicionarPecaOS = function() {
     `;
   } else {
     // Cliente normal — usa estoque, mas permite peça avulsa se não tiver no estoque
-    sel.style.cssText = 'display:grid;grid-template-columns:minmax(220px,1.2fr) 110px minmax(220px,1.4fr) 70px 90px 90px 170px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.18);';
+    sel.style.cssText = 'display:grid;grid-template-columns:minmax(190px,.85fr) minmax(90px,.28fr) minmax(280px,1.25fr) 58px 82px 82px 150px 32px;gap:7px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
     const optsCompleto = '<option value="">Selecionar peca...</option>'
       + J.estoque.filter(p => (p.qtd || 0) > 0).map(p => optionPecaEstoqueOS(p, false)).join('')
       + '<option value="__avulsa__" data-venda="0" data-desc="">+ Peca nao cadastrada (digitar manualmente)</option>';
     sel.innerHTML = `
-      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)" title="Peça real/estoque vinculada à O.S.">${optsCompleto}</select>
-      <input type="text" class="j-input peca-codigo" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código que aparecerá na O.S. do cliente. Pode ser editado sem alterar o registro real/NF.">
-      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição que aparecerá na O.S. do cliente. Pode ser editada sem alterar o registro real/NF.">
+      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${optsCompleto}</select>
+      <input type="text" class="j-input peca-codigo" placeholder="Código O.S." oninput="window.calcOSTotal()" title="Código exibido para o cliente na O.S.">
+      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição exibida para o cliente na O.S.">
       <input type="number" class="j-input peca-qtd" value="1" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="0,00" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="0,00" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
-      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" checked style="width:auto;min-height:0;">baixar/registrar real</label>
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
+      <label style="display:flex;align-items:center;gap:5px;font-family:var(--fm);font-size:.58rem;color:var(--ok);line-height:1.15;"><input type="checkbox" class="peca-baixa-real" checked style="width:auto;min-height:0;"> peça real</label>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
       <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
   if($('containerPecasOS')) $('containerPecasOS').appendChild(sel); window.calcOSTotal();
 };
+
+
+function osTextoNormalizadoCliente(valor) {
+  return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function osClienteOficialSeguroOS(os) {
+  const o = os || {};
+  const cli = (window.J?.clientes || []).find(c => String(c.id) === String(o.clienteId || o.cliente || '')) ||
+    (window.J?.clientes || []).find(c => osTextoNormalizadoCliente(c.nome) === osTextoNormalizadoCliente(o.cliente || o.clienteNome));
+  const nome = osTextoNormalizadoCliente(cli?.nome || o.clienteNome || o.cliente || '');
+  if (!nome || nome === 'CONSUMIDOR') return false;
+  const tipoCliente = String(cli?.tipoCliente || o.tipoCliente || o.clienteTipo || '').toLowerCase();
+  if (tipoCliente === 'governo' || tipoCliente === 'oficial') return true;
+  const raw = JSON.stringify({
+    clienteOficial: cli?.clienteOficial,
+    clienteOrgaoPublico: cli?.orgaoPublico,
+    clientePublico: cli?.publico,
+    clienteGov: cli?.gov,
+    tipoCliente: cli?.tipoCliente,
+    osClienteOficial: o.clienteOficial,
+    osOrgaoPublico: o.orgaoPublico,
+    osGov: o.gov,
+    fiscalContrato: o.fiscalContrato,
+    contrato: o.contrato,
+    orgao: o.orgao,
+    unidade: o.unidade
+  }).toUpperCase();
+  return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA/.test(raw);
+}
+
+function osChavePecaAtendimentoOS(p) {
+  if (!p) return '';
+  const principais = [
+    p.origemNFItemKey,
+    p.idReal,
+    p.pecaRealId,
+    p.nfId && (p.numeroItem || p.codigo || p.codigoComercial || p.codigoFornecedor || p.desc || p.descricao)
+      ? [p.nfId, p.numeroItem || '', p.codigo || p.codigoComercial || p.codigoFornecedor || '', p.desc || p.descricao || ''].join('|')
+      : '',
+    [p.nf || p.nfNumero || '', p.codigo || p.codigoComercial || p.codigoFornecedor || p.oem || '', p.desc || p.descricao || ''].join('|')
+  ].filter(Boolean);
+  return osTextoNormalizadoCliente(principais[0] || principais.join('|'));
+}
+
+function osPecaRealTemCorrespondenteVisivelOS(real, visiveis) {
+  const cr = osChavePecaAtendimentoOS(real);
+  const codigos = [real?.codigo, real?.codigoComercial, real?.codigoFornecedor, real?.oem].filter(Boolean).map(osTextoNormalizadoCliente);
+  const nf = osTextoNormalizadoCliente(real?.nf || real?.nfNumero || real?.numeroNF);
+  const descReal = osTextoNormalizadoCliente(real?.desc || real?.descricao);
+  return (Array.isArray(visiveis) ? visiveis : []).some(v => {
+    if (!v) return false;
+    const cv = osChavePecaAtendimentoOS(v);
+    if (cr && cv && (cv === cr || cv.includes(cr.slice(0, 18)) || cr.includes(cv.slice(0, 18)))) return true;
+    const rawVis = osTextoNormalizadoCliente([v.origemNFItemKey, v.nfId, v.nf, v.nfNumero, v.codigo, v.codigoComercial, v.codigoFornecedor, v.oem, v.desc, v.descricao, v.codigoExibicao, v.descricaoExibicao].filter(Boolean).join('|'));
+    if (codigos.some(c => c && rawVis.includes(c))) return true;
+    if (nf && rawVis.includes(nf)) return true;
+    const descVis = osTextoNormalizadoCliente(v.desc || v.descricao || v.descricaoExibicao);
+    return !!(descReal && descVis && descReal.length > 10 && descVis.length > 10 && (descReal.includes(descVis.slice(0, 14)) || descVis.includes(descReal.slice(0, 14))));
+  });
+}
+
+function osVendaNFParaPecaRealOS(real) {
+  const nfId = String(real?.nfId || '').trim();
+  const nfNumero = String(real?.nf || real?.nfNumero || real?.numeroNF || '').trim();
+  const codigo = osTextoNormalizadoCliente(real?.codigo || real?.codigoComercial || real?.codigoFornecedor || real?.oem);
+  const desc = osTextoNormalizadoCliente(real?.desc || real?.descricao);
+  const notas = Array.isArray(window.J?.notasFiscaisEntrada) ? window.J.notasFiscaisEntrada : [];
+  for (const nf of notas) {
+    if (nfId && String(nf.id || '') !== nfId) continue;
+    if (!nfId && nfNumero && String(nf.numero || nf.nf || nf.numeroNF || '') !== nfNumero) continue;
+    const itens = Array.isArray(nf.itens) ? nf.itens : Array.isArray(nf.produtos) ? nf.produtos : Array.isArray(nf.pecas) ? nf.pecas : [];
+    for (const item of itens) {
+      const raw = osTextoNormalizadoCliente([item.codigo, item.codigoComercial, item.codigoFornecedor, item.oem, item.desc, item.descricao].filter(Boolean).join('|'));
+      if ((codigo && raw.includes(codigo)) || (desc && raw.includes(desc.slice(0, 16)))) {
+        const venda = numBR(item.venda || item.valorVenda || item.precoVenda || 0);
+        if (venda > 0) return venda;
+      }
+    }
+  }
+  const vendaReal = numBR(real?.venda || real?.valorVenda || real?.precoVenda || 0);
+  if (vendaReal > 0) return vendaReal;
+  return numBR(real?.valorCompra || real?.custo || real?.valorUnitarioFiscal || 0);
+}
+
+function osPecaVisivelFromRealOS(real) {
+  const desc = real?.desc || real?.descricao || '';
+  const codigo = real?.codigoComercial || real?.codigoFornecedor || real?.codigo || real?.oem || '';
+  if (!desc && !codigo) return null;
+  return {
+    origem: 'nf_entrada_os',
+    origemNFVinculada: true,
+    origemNFItemKey: real?.origemNFItemKey || '',
+    pecaRealId: real?.origemNFItemKey || '',
+    nfId: real?.nfId || '',
+    nf: real?.nf || real?.nfNumero || '',
+    nfNumero: real?.nfNumero || real?.nf || '',
+    estoqueId: '',
+    codigo,
+    codigoExibicao: codigo,
+    desc,
+    descricao: desc,
+    descricaoExibicao: desc,
+    qtd: numBR(real?.qtd || real?.quantidadeOperacionalTotal || real?.quantidadeFiscal || 1) || 1,
+    custo: numBR(real?.valorCompra || real?.custo || real?.valorUnitarioFiscal || 0),
+    venda: osVendaNFParaPecaRealOS(real),
+    baixarEstoqueReal: false,
+    estoqueBaixadoAutomatico: true,
+    fornecedor: real?.fornecedor || real?.fornecedorNome || '',
+    dataCompra: real?.dataCompra || real?.dataNF || '',
+    codigoFornecedor: real?.codigoFornecedor || '',
+    codigoComercial: real?.codigoComercial || '',
+    marca: real?.marca || ''
+  };
+}
+
+function osReconciliarPecasReaisParaClienteComumOS(os, pecasAtuais, pecasReaisAtuais) {
+  const o = os || {};
+  const visiveis = Array.isArray(pecasAtuais) ? pecasAtuais.slice() : [];
+  const reais = Array.isArray(pecasReaisAtuais) ? pecasReaisAtuais : (Array.isArray(o.pecasReais) ? o.pecasReais : []);
+  if (osClienteOficialSeguroOS(o)) return visiveis;
+  reais.forEach(real => {
+    const origemNF = real && (real.origem === 'nf_entrada' || real.statusAplicacao === 'comprada_vinculada_nf' || real.nfId || real.origemNFItemKey);
+    if (!origemNF) return;
+    if (osPecaRealTemCorrespondenteVisivelOS(real, visiveis)) return;
+    const nova = osPecaVisivelFromRealOS(real);
+    if (nova) visiveis.push(nova);
+  });
+  return visiveis;
+}
+
+function osAplicarLayoutPecaClienteNormalOS(row) {
+  if (!row || row.dataset.layoutPecaClienteNormal === '1') return;
+  row.dataset.layoutPecaClienteNormal = '1';
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(190px,.85fr) minmax(90px,.28fr) minmax(280px,1.25fr) 58px 82px 82px 150px 32px;gap:7px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
+  const info = row.querySelector('.peca-estoque-info');
+  if (info) info.style.gridColumn = '1/-1';
+}
 
 window.renderPecaOSRow = function(p) {
   const div = document.createElement('div');
@@ -2194,33 +2333,42 @@ window.renderPecaOSRow = function(p) {
     const custo = numBR(p.custo || p.c || 0);
     const qtd = numBR(p.qtd || p.q || 1) || 1;
     div.dataset.pecaAvulsa = '1';
-    div.style.cssText = 'display:grid;grid-template-columns:120px 1fr 80px 90px 90px 32px;gap:8px;align-items:center;background:rgba(255,165,0,0.06);padding:4px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
+    div.dataset.pecaNf = p.nf || p.nfNumero || '';
+    div.dataset.pecaNfId = p.nfId || '';
+    div.dataset.origemNFItemKey = p.origemNFItemKey || '';
+    div.dataset.origemNFVinculada = p.origemNFVinculada ? '1' : '';
+    div.dataset.origemPecaOS = p.origem || '';
+    div.style.cssText = 'display:grid;grid-template-columns:minmax(100px,.32fr) minmax(320px,1.4fr) 58px 82px 82px 32px;gap:7px;align-items:center;background:rgba(255,165,0,0.06);padding:6px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
     div.innerHTML = `
-      <input type="text" class="j-input peca-codigo" value="${escOS(p.codigo || '')}" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código exibido na O.S. do cliente. A edição não altera NF/peça real.">
-      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.desc || '')}" placeholder="DescriÃ§Ã£o da peÃ§a" oninput="window.calcOSTotal()" title="DescriÃ§Ã£o exata exibida na O.S. do cliente. A edição não altera NF/peça real.">
+      <input type="text" class="j-input peca-codigo" value="${escOS(p.codigoExibicao || p.codigo || '')}" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código exibido na O.S. Pode ser abreviado sem alterar a peça real.">
+      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.descricaoExibicao || p.desc || p.descricao || '')}" placeholder="Descrição da peça na O.S." oninput="window.calcOSTotal()" title="Descrição exibida na O.S. Pode ser editada sem alterar NF/peça real.">
       <input type="number" class="j-input peca-qtd" value="${qtd}" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peÃ§a no orÃ§amento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="${custo.toFixed(2).replace('.', ',')}" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitÃ¡rio interno da peÃ§a">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="${vBruto.toFixed(2).replace('.', ',')}" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitÃ¡rio de venda/orÃ§amento da peÃ§a">
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">âœ•</button>
     `;
   } else {
     // Cliente normal (estoque)
     const vBruto = numBR(p.venda || p.v || 0);
-    div.style.cssText = 'display:grid;grid-template-columns:minmax(220px,1.2fr) 110px minmax(220px,1.4fr) 70px 90px 90px 170px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.18);';
-    div.dataset.pecaCodigo = p.codigo || '';
+    div.style.cssText = 'display:grid;grid-template-columns:minmax(190px,.85fr) minmax(90px,.28fr) minmax(280px,1.25fr) 58px 82px 82px 150px 32px;gap:7px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
+    div.dataset.pecaCodigo = p.codigo || p.codigoExibicao || '';
     div.dataset.pecaFornecedor = p.fornecedor || p.fornecedorNome || '';
     div.dataset.pecaNf = p.nf || p.nfNumero || '';
+    div.dataset.pecaNfId = p.nfId || '';
+    div.dataset.origemNFItemKey = p.origemNFItemKey || '';
+    div.dataset.origemNFVinculada = p.origemNFVinculada ? '1' : '';
+    div.dataset.origemPecaOS = p.origem || '';
     div.dataset.pecaDataCompra = p.dataCompra || '';
-    const opts = '<option value="">' + escOS(p.desc || 'Selecionar peca...') + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => optionPecaEstoqueOS(x, x.id === p.estoqueId)).join('') + '<option value="__avulsa__">+ Peca nao cadastrada</option>';
+    const opts = '<option value="">' + escOS(p.desc || 'Selecionar peca...') + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => optionPecaEstoqueOS(x, x.id === p.estoqueId)).join('');
     div.innerHTML = `
-      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)" title="Peça real/estoque vinculada à O.S.">${opts}</select>
-      <input type="text" class="j-input peca-codigo" value="${escOS(p.codigo || '')}" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código que aparecerá na O.S. do cliente. Pode ser editado sem alterar o registro real/NF.">
-      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.desc || '')}" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição que aparecerá na O.S. do cliente. Pode ser editada sem alterar o registro real/NF.">
+      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${opts}</select>
+      <input type="text" class="j-input peca-codigo" value="${escOS(p.codigoExibicao || p.codigo || '')}" placeholder="Código O.S." oninput="window.calcOSTotal()" title="Código exibido para o cliente na O.S.">
+      <input type="text" class="j-input peca-desc-livre" value="${escOS(p.descricaoExibicao || p.desc || p.descricao || '')}" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição exibida para o cliente na O.S.">
       <input type="number" class="j-input peca-qtd" value="${p.qtd || p.q || 1}" min="1" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="${numBR(p.custo || p.c || 0).toFixed(2).replace('.', ',')}" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="${vBruto.toFixed(2).replace('.', ',')}" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
-      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" ${p.baixarEstoqueReal === true ? 'checked' : ''} style="width:auto;min-height:0;">baixar/registrar real</label>
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
+      <label style="display:flex;align-items:center;gap:5px;font-family:var(--fm);font-size:.58rem;color:var(--ok);line-height:1.15;"><input type="checkbox" class="peca-baixa-real" ${p.baixarEstoqueReal === true ? 'checked' : ''} style="width:auto;min-height:0;"> peça real</label>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
       <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
@@ -2234,14 +2382,14 @@ window.selecionarPecaOS = function(sel) {
     // Transforma a linha em entrada manual (igual ao modo governo, mas sem código original)
     const row = sel.parentElement;
     row.dataset.pecaAvulsa = '1';
-    row.style.cssText = 'display:grid;grid-template-columns:120px 1fr 80px 90px 90px 32px;gap:8px;align-items:center;background:rgba(255,165,0,0.06);padding:4px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
+    row.style.cssText = 'display:grid;grid-template-columns:minmax(100px,.32fr) minmax(320px,1.4fr) 58px 82px 82px 32px;gap:7px;align-items:center;background:rgba(255,165,0,0.06);padding:6px;border-radius:3px;border:1px solid rgba(255,165,0,0.25);';
     row.innerHTML = `
-      <input type="text" class="j-input peca-codigo" placeholder="Código na O.S." oninput="window.calcOSTotal()" title="Código exibido na O.S. do cliente.">
-      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição da peça" oninput="window.calcOSTotal()" title="Descrição exibida na O.S. do cliente.">
+      <input type="text" class="j-input peca-codigo" placeholder="Código O.S." oninput="window.calcOSTotal()" title="Código exibido na O.S.">
+      <input type="text" class="j-input peca-desc-livre" placeholder="Descrição da peça" oninput="window.calcOSTotal()">
       <input type="number" class="j-input peca-qtd" value="1" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="0,00" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="0,00" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
-      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:28px;">×</button>
+      <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
     `;
     row.querySelector('.peca-desc-livre').focus();
   } else {
@@ -2644,10 +2792,19 @@ window.salvarOS = async function() {
           avulsa: true,        // marcador
           estoqueId: '',       // não baixa estoque
           codigo: codigo,
+          codigoExibicao: codigo,
           desc: descLivre,
+          descricao: descLivre,
+          descricaoExibicao: descLivre,
           qtd: qtd,
           custo: 0,
           venda: venda,
+          origem: row.dataset?.origemPecaOS || 'manual',
+          origemNFItemKey: row.dataset?.origemNFItemKey || '',
+          nfId: row.dataset?.pecaNfId || '',
+          nf: row.dataset?.pecaNf || '',
+          nfNumero: row.dataset?.pecaNf || '',
+          origemNFVinculada: row.dataset?.origemNFVinculada === '1',
           ciliaBruto: numBR(row.dataset?.ciliaBruto || venda),
           ciliaValorLiquido: numBR(row.dataset?.ciliaLiquido || 0),
           ciliaDesconto: numBR(row.dataset?.ciliaDesconto || 0),
@@ -2665,7 +2822,7 @@ window.salvarOS = async function() {
     const opt = sel?.options[sel.selectedIndex];
     const estoqueId = sel?.value || '';
     const codigo = row.querySelector('.peca-codigo')?.value?.trim() || row.dataset?.pecaCodigo || opt?.dataset?.codigo || '';
-    const descPeca = descricaoPecaLinhaOS(row, opt, estoqueId);
+    const descPeca = row.querySelector('.peca-desc-livre')?.value?.trim() || descricaoPecaLinhaOS(row, opt, estoqueId);
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
     const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
     const custo = numBR(row.querySelector('.peca-custo')?.value || 0);
@@ -2675,11 +2832,19 @@ window.salvarOS = async function() {
     pecas.push({
       estoqueId,
       codigo,
+      codigoExibicao: codigo,
       desc: descPeca,
+      descricao: descPeca,
+      descricaoExibicao: descPeca,
       qtd: qtd, custo: custo, venda: venda,
       baixarEstoqueReal: pecaOSBaixaRealAtiva(row),
       fornecedor: row.dataset?.pecaFornecedor || opt?.dataset?.fornecedor || '',
       nf: row.dataset?.pecaNf || opt?.dataset?.nf || '',
+      nfNumero: row.dataset?.pecaNf || opt?.dataset?.nf || '',
+      nfId: row.dataset?.pecaNfId || '',
+      origemNFItemKey: row.dataset?.origemNFItemKey || '',
+      origemNFVinculada: row.dataset?.origemNFVinculada === '1',
+      origem: row.dataset?.origemPecaOS || (row.dataset?.origemNFVinculada === '1' ? 'nf_entrada_os' : (estoqueId ? 'os_estoque' : 'manual')),
       dataCompra: row.dataset?.pecaDataCompra || opt?.dataset?.dataCompra || ''
     });
   });
@@ -2813,7 +2978,7 @@ window.salvarOS = async function() {
   // Antes só gravava quando length > 0, por isso exclusão visual voltava ao reabrir a OS.
   payload.pecasLegacy = itens;
   payload.servicos = servicos;
-  payload.pecas = pecas;
+  payload.pecas = osReconciliarPecasReaisParaClienteComumOS(Object.assign({}, _oldOSPreservar || {}, payload), pecas, payload.pecasReais || _pecasReais || []);
   payload.maoObra = totalMaoObra;
 
   // Mapeia media para o payload antes do Deep Diff para podermos comparar

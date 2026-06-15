@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260615-fluxo-pecas-reais-os-cliente-comum';
+const CACHE_VERSION = 'oficinia-20260615-fluxo-atendimento-pecas-nf-os-auditado';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
