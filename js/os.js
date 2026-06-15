@@ -3934,8 +3934,114 @@ window.renderTimelineOS = function() {
   $('osTimeline').innerHTML = [...tl].reverse().map(e => `<div class="tl-item"><div class="tl-date">${dtHrBr(e.dt)}</div><div class="tl-user">${e.user}</div><div class="tl-action">${e.acao}</div></div>`).join('');
 };
 
+
+window.abrirVisualizadorPdfOS = function(urlPdf, tituloPdf) {
+  const tituloSeguro = String(tituloPdf || 'Orçamento da O.S.').replace(/[<>]/g, '');
+  let overlay = document.getElementById('visualizadorPdfOSOverlay');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'visualizadorPdfOSOverlay';
+  overlay.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'z-index:999999',
+    'background:rgba(2,6,23,.82)',
+    'display:flex',
+    'flex-direction:column',
+    'padding:14px',
+    'box-sizing:border-box'
+  ].join(';');
+
+  const barra = document.createElement('div');
+  barra.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'gap:10px',
+    'background:#0f172a',
+    'color:#e5eefc',
+    'border:1px solid rgba(148,163,184,.35)',
+    'border-radius:14px 14px 0 0',
+    'padding:10px 12px',
+    'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'
+  ].join(';');
+
+  const titulo = document.createElement('div');
+  titulo.textContent = 'Visualização do orçamento — impressão econômica';
+  titulo.style.cssText = 'font-weight:700;font-size:14px;';
+
+  const acoes = document.createElement('div');
+  acoes.style.cssText = 'display:flex;gap:8px;align-items:center;';
+
+  const abrir = document.createElement('button');
+  abrir.type = 'button';
+  abrir.textContent = 'ABRIR EM NOVA ABA';
+  abrir.style.cssText = 'border:1px solid rgba(34,211,238,.45);background:rgba(34,211,238,.12);color:#e0f2fe;border-radius:10px;padding:8px 10px;font-weight:700;cursor:pointer;';
+  abrir.onclick = function() {
+    try { window.open(urlPdf, '_blank'); } catch (_) {}
+  };
+
+  const fechar = document.createElement('button');
+  fechar.type = 'button';
+  fechar.textContent = 'FECHAR';
+  fechar.style.cssText = 'border:1px solid rgba(248,113,113,.45);background:rgba(248,113,113,.12);color:#fee2e2;border-radius:10px;padding:8px 10px;font-weight:700;cursor:pointer;';
+  fechar.onclick = function() {
+    try { overlay.remove(); } catch (_) {}
+  };
+
+  acoes.appendChild(abrir);
+  acoes.appendChild(fechar);
+  barra.appendChild(titulo);
+  barra.appendChild(acoes);
+
+  const iframe = document.createElement('iframe');
+  iframe.title = tituloSeguro;
+  iframe.src = urlPdf;
+  iframe.style.cssText = [
+    'width:100%',
+    'height:100%',
+    'border:1px solid rgba(148,163,184,.35)',
+    'border-top:0',
+    'border-radius:0 0 14px 14px',
+    'background:#fff'
+  ].join(';');
+
+  overlay.appendChild(barra);
+  overlay.appendChild(iframe);
+  document.body.appendChild(overlay);
+  return overlay;
+};
+
+
 window.gerarPDFOS = async function(opcoes = {}) {
   const visualizarPDF = opcoes === 'visualizar' || opcoes?.visualizar === true;
+  const visualizacaoEconomicaPDF = visualizarPDF === true;
+  // Visualização: mantém logo/timbrado, mas remove fotos/evidências/assinatura em imagem e usa cabeçalhos brancos para impressão.
+  const incluirImagensPDF = !(visualizarPDF || opcoes?.semImagens === true || opcoes?.semImagem === true);
+  const incluirLogoPDF = opcoes?.semLogo !== true;
+  const headStylesPadraoPDF = visualizacaoEconomicaPDF
+    ? { fillColor: [255, 255, 255], textColor: [20, 30, 45], fontStyle: 'normal' }
+    : { fillColor: [28, 39, 58], textColor: [255, 255, 255], fontStyle: 'bold' };
+  const headStylesInfoPDF = visualizacaoEconomicaPDF
+    ? { fillColor: [255, 255, 255], textColor: [20, 30, 45], fontStyle: 'normal' }
+    : { fillColor: [228, 233, 240], textColor: [0, 0, 0], fontStyle: 'bold' };
+  const headStylesGarantiaPDF = visualizacaoEconomicaPDF
+    ? { fillColor: [255, 255, 255], textColor: [20, 30, 45], fontStyle: 'normal' }
+    : { fillColor: [120, 80, 20], textColor: [255, 255, 255], fontStyle: 'bold' };
+  let janelaVisualizacaoPDF = null;
+  if (visualizarPDF) {
+    try {
+      janelaVisualizacaoPDF = window.open('about:blank', '_blank');
+      if (janelaVisualizacaoPDF && !janelaVisualizacaoPDF.closed) {
+        janelaVisualizacaoPDF.document.open();
+        janelaVisualizacaoPDF.document.write('<!doctype html><html><head><title>Gerando orçamento...</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0f172a;color:#e5eefc;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;"><div><h2 style="margin:0 0 8px;">Gerando orçamento...</h2><p style="opacity:.8;margin:0;">A visualização será aberta nesta aba, com logo e sem fotos.</p></div></body></html>');
+        janelaVisualizacaoPDF.document.close();
+      }
+    } catch (_) {
+      janelaVisualizacaoPDF = null;
+    }
+  }
   if (typeof window.jspdf === 'undefined') { window.toast('jsPDF nao carregado', 'err'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
@@ -4013,11 +4119,21 @@ window.gerarPDFOS = async function(opcoes = {}) {
 
   function linhaTitulo(titulo) {
     if (y > ph - 30) { doc.addPage(); y = 12; }
-    doc.setFillColor(28, 39, 58);
-    doc.rect(margem, y, pw - margem * 2, 7, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(255, 255, 255);
+    if (visualizacaoEconomicaPDF) {
+      doc.setFillColor(255, 255, 255);
+      doc.rect(margem, y, pw - margem * 2, 7, 'F');
+      doc.setDrawColor(210, 216, 226);
+      doc.rect(margem, y, pw - margem * 2, 7);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(20, 30, 45);
+    } else {
+      doc.setFillColor(28, 39, 58);
+      doc.rect(margem, y, pw - margem * 2, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(255, 255, 255);
+    }
     doc.text(titulo, margem + 2, y + 5);
     y += 10;
   }
@@ -4159,7 +4275,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
 
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, pw, ph, 'F');
-  const logoOficinaPDF = await carregarImagem(oficinaTimbradoPdf.logoUrl);
+  const logoOficinaPDF = incluirLogoPDF ? await carregarImagem(oficinaTimbradoPdf.logoUrl) : null;
   const headerLineY = 28;
   doc.setDrawColor(20, 45, 95);
   doc.setLineWidth(0.7);
@@ -4200,7 +4316,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
     theme: 'grid',
     margin: { left: margem, right: margem },
     styles: { fontSize: 8, cellPadding: 2, textColor: [20, 30, 45], lineColor: [185, 195, 210], lineWidth: 0.15 },
-    headStyles: { fillColor: [228, 233, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    headStyles: headStylesInfoPDF,
     body: [
       ['OS', osId, 'Emissão', hoje],
       ['Cliente', texto(clientePdf.nome), 'CPF/CNPJ', texto(clientePdf.doc)],
@@ -4236,7 +4352,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       margin: { left: margem, right: margem },
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 6.8, cellPadding: 1.45, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
-      headStyles: { fillColor: [28, 39, 58], textColor: [255, 255, 255] },
+      headStyles: headStylesPadraoPDF,
       columnStyles: { 0: { cellWidth: 42 }, 1: { cellWidth: 34 }, 2: { cellWidth: 66 }, 3: { halign: 'center', cellWidth: 16 }, 4: { halign: 'right', cellWidth: 28 } }
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -4260,7 +4376,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       margin: { left: margem, right: margem },
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 6.7, cellPadding: 1.45, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
-      headStyles: { fillColor: [28, 39, 58], textColor: [255, 255, 255] },
+      headStyles: headStylesPadraoPDF,
       columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 44 }, 2: { cellWidth: 62 }, 3: { halign: 'center', cellWidth: 12 }, 4: { halign: 'right', cellWidth: 18 }, 5: { halign: 'center', cellWidth: 14 }, 6: { halign: 'right', cellWidth: 20 } }
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -4278,7 +4394,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       margin: { left: margem, right: margem },
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 7.2, cellPadding: 1.55, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
-      headStyles: { fillColor: [28, 39, 58], textColor: [255, 255, 255] },
+      headStyles: headStylesPadraoPDF,
       columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 76 }, 2: { halign: 'center', cellWidth: 12 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'center', cellWidth: 16 }, 5: { halign: 'right', cellWidth: 26 } }
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -4304,7 +4420,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       margin: { left: margem, right: margem },
       tableWidth: larguraUtilPdf,
       styles: { fontSize: 6.6, cellPadding: 1.35, lineColor: [190, 198, 210], lineWidth: 0.12, overflow: 'linebreak' },
-      headStyles: { fillColor: [28, 39, 58], textColor: [255, 255, 255] },
+      headStyles: headStylesPadraoPDF,
       columnStyles: { 0: { cellWidth: 34 }, 1: { halign:'center', cellWidth: 22 }, 2: { halign:'center', cellWidth: 22 }, 3: { halign:'center', cellWidth: 22 }, 4: { halign:'right', cellWidth: 23 }, 5: { halign:'right', cellWidth: 25 }, 6: { halign:'center', cellWidth: 18 }, 7: { halign:'right', cellWidth: 20 } }
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -4325,7 +4441,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
       theme: 'grid',
       margin: { left: margem, right: margem },
       styles: { fontSize: 7, cellPadding: 1.5, lineColor: [190,198,210], lineWidth: 0.12, overflow: 'linebreak' },
-      headStyles: { fillColor: [120, 80, 20], textColor: [255,255,255] },
+      headStyles: headStylesGarantiaPDF,
       columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 35 }, 2: { cellWidth: 95 }, 3: { cellWidth: 32, halign: 'right' } }
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -4345,11 +4461,13 @@ window.gerarPDFOS = async function(opcoes = {}) {
       ['DESLOCAMENTO / GUINCHO', moedaPdf(totalGuinchoPdf)],
       [aprovacaoPDFAtiva ? 'VALOR APROVADO / CONTRATO' : 'VALOR DO CONTRATO', moedaPdf(totalGeral)]
     ],
-    columnStyles: { 0: { fontStyle: 'bold', halign: 'right', cellWidth: 56 }, 1: { fontStyle: 'bold', halign: 'right', cellWidth: 32 } },
+    columnStyles: { 0: { fontStyle: visualizacaoEconomicaPDF ? 'normal' : 'bold', halign: 'right', cellWidth: 56 }, 1: { fontStyle: visualizacaoEconomicaPDF ? 'normal' : 'bold', halign: 'right', cellWidth: 32 } },
     didParseCell: data => {
       if (data.row.index === 3) {
-        data.cell.styles.fillColor = [205, 200, 160];
+        data.cell.styles.fillColor = visualizacaoEconomicaPDF ? [255, 255, 255] : [205, 200, 160];
         data.cell.styles.fontSize = 12;
+        data.cell.styles.fontStyle = visualizacaoEconomicaPDF ? 'normal' : 'bold';
+        data.cell.styles.textColor = [20, 30, 45];
       }
     }
   });
@@ -4358,7 +4476,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
   let media = [];
   try { media = JSON.parse(document.getElementById('osMediaArray')?.value || '[]'); } catch(e) { media = []; }
   const imagens = media.filter(m => (m.type || 'image') !== 'video' && m.url).slice(0, 12);
-  if (imagens.length) {
+  if (incluirImagensPDF && imagens.length) {
     linhaTitulo('EVIDÊNCIAS DIGITAIS');
     const thumbW = 55, thumbH = 38, gap = 5;
     let x = margem;
@@ -4387,7 +4505,7 @@ window.gerarPDFOS = async function(opcoes = {}) {
 
   const assinaturaPDF = (typeof window._osSignGetPayload === 'function' ? window._osSignGetPayload() : null) || osAtual.assinaturaResponsavel || osAtual.assinaturaOS || osAtual.assinaturaUsada || J.oficina?.assinatura || {};
   const urlAssPDF = assinaturaPDF.url || assinaturaPDF.cloudUrl || assinaturaPDF.assinaturaUrl || assinaturaPDF.urlAssinatura || '';
-  const imgAssPDF = await carregarImagem(urlAssPDF);
+  const imgAssPDF = incluirImagensPDF ? await carregarImagem(urlAssPDF) : null;
   const alturaFechamentoPDF = 55;
   if (y + alturaFechamentoPDF > ph - 10) { doc.addPage(); y = 18; }
   const assinaturaLinhaY = y + 24;
@@ -4427,16 +4545,21 @@ window.gerarPDFOS = async function(opcoes = {}) {
   const pdfBlob = doc.output('blob');
   if (visualizarPDF) {
     const urlPdf = URL.createObjectURL(pdfBlob);
-    const janelaPdf = window.open(urlPdf, '_blank');
-    if (!janelaPdf) {
-      URL.revokeObjectURL(urlPdf);
-      window.toast?.('Navegador bloqueou a visualização; baixando PDF.', 'warn');
-      await salvarBlobArquivoOS(pdfBlob, nomeArquivoPdf, 'application/pdf');
-      return { blob: pdfBlob, fileName: nomeArquivoPdf, fallbackDownload: true };
+    let abriuEmAba = false;
+    try {
+      if (janelaVisualizacaoPDF && !janelaVisualizacaoPDF.closed) {
+        janelaVisualizacaoPDF.location.href = urlPdf;
+        abriuEmAba = true;
+      }
+    } catch (_) {
+      abriuEmAba = false;
     }
-    setTimeout(() => URL.revokeObjectURL(urlPdf), 300000);
-    window.toast('ORÇAMENTO ABERTO PARA VISUALIZAÇÃO', 'ok');
-    return { blob: pdfBlob, fileName: nomeArquivoPdf, url: urlPdf };
+    if (!abriuEmAba) {
+      window.abrirVisualizadorPdfOS?.(urlPdf, nomeArquivoPdf);
+    }
+    setTimeout(() => URL.revokeObjectURL(urlPdf), 900000);
+    window.toast('ORÇAMENTO ABERTO PARA VISUALIZAÇÃO SEM IMAGENS', 'ok');
+    return { blob: pdfBlob, fileName: nomeArquivoPdf, url: urlPdf, visualizacao: abriuEmAba ? 'nova_aba' : 'modal_interno', semImagens: true };
   }
   await salvarBlobArquivoOS(pdfBlob, nomeArquivoPdf, 'application/pdf');
   window.toast('PDF GERADO', 'ok');
