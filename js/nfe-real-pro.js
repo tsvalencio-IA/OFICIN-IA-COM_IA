@@ -1335,6 +1335,8 @@
     });
     W.calcOSTotal?.();
   }
+  W.refletirPecasNFNaOSTelaAtual = refletirPecasNFNaOSTelaAtual;
+  W.refletirPecasNFNaOS = W.refletirPecasNFNaOS || refletirPecasNFNaOSTelaAtual;
   async function registrarPecasReaisOSNF(batch, itens, nfRef, nfPayload, fornecedorId, fornecedorNome){
     const porOS = new Map();
     const semDestino = [];

@@ -356,6 +356,61 @@
     return ctx.clientes.find(c => c.id === os?.clienteId) || {};
   }
 
+  function clienteTextoOS(ctx, os) {
+    const c = clienteDeOS(ctx, os);
+    return textoLivre(Object.assign({}, c || {}, os || {}), [
+      'id','nome','razaoSocial','fantasia','apelido','cpf','cnpj','cliente','clienteNome','nomeCliente','clienteRazao',
+      'clienteId','responsavel','contato','telefone','celular','placa','veiculo'
+    ]);
+  }
+
+  function clienteFiltroDaPergunta(texto, q, ctx) {
+    const raw = String(texto || '');
+    let termo = '';
+    const aspas = raw.match(/["“”']([^"“”']{2,80})["“”']/);
+    if (aspas) termo = aspas[1];
+    if (!termo) {
+      const m = raw.match(/cliente\s+(.+?)(?:\s+(?:foram|foi|forao|tem|estao|está|entreg|sem|com|que|quais|quantos|quantas|do|da|depois)|[?.!,]|$)/i);
+      if (m) termo = m[1];
+    }
+    termo = norm(termo).replace(/^(o|a|os|as|do|da|de|dos|das)\s+/, '').trim();
+
+    let melhor = null;
+    let melhorScore = 0;
+    (Array.isArray(ctx.clientes) ? ctx.clientes : []).forEach(c => {
+      const nome = norm([c.nome, c.razaoSocial, c.fantasia, c.apelido, c.cpf, c.cnpj].filter(Boolean).join(' '));
+      if (!nome) return;
+      let score = 0;
+      if (termo && nome.includes(termo)) score += termo.length + 20;
+      const tokensNome = nome.split(/\s+/).filter(t => t.length >= 3);
+      tokensNome.forEach(t => { if (q.includes(t)) score += t.length; });
+      if (score > melhorScore) { melhor = c; melhorScore = score; }
+    });
+
+    if (melhor && melhorScore >= 4) {
+      const alvo = norm([melhor.nome, melhor.razaoSocial, melhor.fantasia, melhor.apelido, melhor.cpf, melhor.cnpj, melhor.id].filter(Boolean).join(' '));
+      return { cliente: melhor, termo: alvo, label: melhor.nome || melhor.razaoSocial || melhor.fantasia || melhor.id || 'cliente' };
+    }
+
+    if (termo && termo.length >= 3) return { cliente: null, termo, label: termo };
+    return null;
+  }
+
+  function filtrarOSPorClientePergunta(ctx, lista, texto, q) {
+    if (!/cliente|clientes|frota|empresa|batalhao|batalhão|policia|polícia/i.test(texto)) return { lista, filtro: null };
+    const filtro = clienteFiltroDaPergunta(texto, q, ctx);
+    if (!filtro || !filtro.termo) return { lista, filtro: null };
+    const termos = filtro.termo.split(/\s+/).filter(t => t.length >= 3);
+    const filtrada = lista.filter(o => {
+      const cliente = clienteDeOS(ctx, o);
+      if (filtro.cliente && (String(o.clienteId || '') === String(filtro.cliente.id || '') || String(o.cliente?.id || '') === String(filtro.cliente.id || ''))) return true;
+      const hay = norm(clienteTextoOS(ctx, o));
+      if (hay.includes(filtro.termo)) return true;
+      return termos.length && termos.every(t => hay.includes(t));
+    });
+    return { lista: filtrada, filtro };
+  }
+
   function veiculoDeOS(ctx, os) {
     return ctx.veiculos.find(v => v.id === os?.veiculoId) || {};
   }
@@ -431,6 +486,20 @@
     return { fins, pagos, pendentes, totalPago, totalPendente, totalOS, semRecebimento };
   }
 
+  function resumoFaturamentoOS(ctx, o) {
+    const fins = financeiroDaOS(ctx, o);
+    const txtOS = norm(textoLivre(o, [
+      'id','numero','status','faturado','nfEmitida','notaEmitida','nfeEmitida','numeroNF','nfNumero','nfeNumero','notaFiscal',
+      'fatura','faturaId','documentoFiscal','financeiroGerado','orcamentoFaturado','cliente','clienteNome','placa'
+    ]));
+    const temFlagOS = o?.faturado === true || o?.nfEmitida === true || o?.notaEmitida === true || o?.nfeEmitida === true ||
+      !!(o?.numeroNF || o?.nfNumero || o?.nfeNumero || o?.notaFiscal || o?.fatura || o?.faturaId || o?.documentoFiscal || o?.financeiroGerado || o?.orcamentoFaturado);
+    const finsFaturamento = fins.filter(f => /receb|entrada|fatur|cliente|orcamento|orçamento|os|o\.s|nota|nf|nfe/.test(tipoFinanceiro(f) + ' ' + norm(textoFinanceiro(f))));
+    const temTextoFaturado = /faturad|nf emitid|nota emitid|nfe emitid|fatura/.test(txtOS) && !/nao faturad|não faturad|sem fatur/.test(txtOS);
+    const temFaturamento = !!temFlagOS || !!temTextoFaturado || finsFaturamento.length > 0;
+    return { temFaturamento, semFaturamento: !temFaturamento, finsFaturamento };
+  }
+
   function statusNormalizadoOS(o) {
     return norm(o?.status || '');
   }
@@ -450,7 +519,8 @@
   function responderVeiculosOSOperacional(texto, q, ctx, opts) {
     const falaOS = /\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q);
     if (!falaOS) return null;
-    const querReceb = /receb|pago|pagas|pagos|pagamento|sem recebimento|sem pagar/.test(q);
+    const querReceb = /receb|pago|pagas|pagos|pagamento|sem recebimento|sem receber|sem pagar/.test(q);
+    const querFatur = /fatur|nota emitid|nf emitid|nfe emitid|sem nota|sem nf/.test(q);
     const querEntregue = /entreg|fechad|finaliz|concluid/.test(q);
     const querPatio = /patio|pátio|abert|abertas|andamento|aprovad|orcamento|orçamento|triagem|pronto/.test(q);
     const querHoje = /\bhoje\b/.test(q);
@@ -459,10 +529,19 @@
     if (querEntregue) lista = lista.filter(isEntregueOS);
     else if (querPatio || /\bveiculos?\b/.test(q)) lista = lista.filter(isAbertaOS);
 
-    if (querReceb) {
+    const clienteFiltroAplicado = filtrarOSPorClientePergunta(ctx, lista, texto, q);
+    lista = clienteFiltroAplicado.lista;
+
+    if (querReceb || querFatur) {
       lista = lista.filter(o => {
         const r = resumoRecebimentoOS(ctx, o);
-        if (/sem recebimento|sem receber|sem pagamento|sem pagar/.test(q)) return r.semRecebimento || r.totalPendente > 0;
+        const fat = resumoFaturamentoOS(ctx, o);
+        const pedeSemReceber = /sem recebimento|sem receber|sem pagamento|sem pagar/.test(q);
+        const pedeSemFaturar = /sem fatur|nao fatur|não fatur|sem nota|sem nf/.test(q);
+        if (pedeSemReceber && pedeSemFaturar) return r.semRecebimento || r.totalPendente > 0 || fat.semFaturamento;
+        if (pedeSemReceber) return r.semRecebimento || r.totalPendente > 0;
+        if (pedeSemFaturar) return fat.semFaturamento;
+        if (querFatur) return fat.temFaturamento || fat.semFaturamento;
         return r.fins.length || r.totalOS > 0;
       });
     }
@@ -472,7 +551,7 @@
       lista = lista.filter(o => String(o.data || o.createdAt || o.updatedAt || '').slice(0, 10) === hoje);
     }
 
-    if (!querPatio && !querEntregue && !querReceb && !/\b(os|o\.s\.)\b/.test(q)) return null;
+    if (!querPatio && !querEntregue && !querReceb && !querFatur && !/\b(os|o\.s\.)\b/.test(q)) return null;
 
     lista = lista.sort((a, b) => String(b.updatedAt || b.createdAt || b.data || '').localeCompare(String(a.updatedAt || a.createdAt || a.data || '')));
 
@@ -483,20 +562,28 @@
       return 'Não encontrei O.S. nessa condição nos dados carregados.';
     }
 
-    const titulo = querReceb && querEntregue
-      ? 'Veículos entregues com pendência/sem recebimento'
-      : querReceb
-        ? 'O.S. com pendência/sem recebimento'
-        : querEntregue
-          ? 'Veículos entregues / O.S. fechadas'
-          : 'Veículos no pátio / O.S. abertas';
+    const tituloBase = querFatur && querReceb && querEntregue
+      ? 'Veículos entregues sem faturar e/ou sem receber'
+      : querFatur && querEntregue
+        ? 'Veículos entregues sem faturar / sem NF'
+        : querReceb && querEntregue
+          ? 'Veículos entregues com pendência/sem recebimento'
+          : querFatur
+            ? 'O.S. sem faturamento/NF identificado'
+            : querReceb
+              ? 'O.S. com pendência/sem recebimento'
+              : querEntregue
+                ? 'Veículos entregues / O.S. fechadas'
+                : 'Veículos no pátio / O.S. abertas';
+    const titulo = clienteFiltroAplicado.filtro?.label ? `${tituloBase} — cliente ${esc(clienteFiltroAplicado.filtro.label)}` : tituloBase;
 
     const totalValor = lista.reduce((s, o) => s + valorOS(o), 0);
     const linhas = lista.slice(0, 30).map(o => {
       const r = resumoRecebimentoOS(ctx, o);
       const base = resumoOS(ctx, o, Object.assign({}, opts, { comDiagnostico: false, comValores: podeFinanceiro(opts) }));
+      const fat = resumoFaturamentoOS(ctx, o);
       const rec = podeFinanceiro(opts)
-        ? ` | recebido ${moeda(r.totalPago)} | pendente ${moeda(r.totalPendente)}`
+        ? ` | recebido ${moeda(r.totalPago)} | pendente ${moeda(r.totalPendente)} | ${fat.temFaturamento ? 'faturado/NF localizado' : 'sem faturamento/NF localizado'}`
         : '';
       const prisma = String(o.prisma || o.numeroPrisma || '').trim();
       const prismaTxt = prisma && !isEntregueOS(o) ? ` | prisma ${esc(prisma)}` : '';

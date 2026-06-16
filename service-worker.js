@@ -1,3 +1,4 @@
+// Cache rev: 20260616-ia-interna-nf-os-window-v3
 /**
  * thIAguinho ERP — Service Worker
  *

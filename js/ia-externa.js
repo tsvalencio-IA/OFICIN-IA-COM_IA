@@ -210,7 +210,7 @@
     const historicoExplicito = !!placa && /\b(historico|histórico|passagem|passagens|os|ordem|ordens)\b/i.test(raw) &&
       !/\b(falh|lenta|engasg|forc|força|partida|aquec|barulho|ruido|vibr|apag|morrendo|injec|ignic|vela|bobina|bico|sensor|sonda|dtc|codigo|código|p\s*0?\d{3,4})\b/i.test(raw);
 
-    const interno = /\b(estoque|financeiro|dre|caixa|contas?\s+a\s+pagar|contas?\s+a\s+receber|cliente|fornecedor|kardex|orcamento|orçamento|nota fiscal|nfe|nf-e|agenda|equipe|comissao|comissão|venda|relatorio|relatório)\b/.test(t);
+    const interno = /\b(estoque|financeiro|dre|caixa|contas?\s+a\s+pagar|contas?\s+a\s+receber|cliente|fornecedor|kardex|orcamento|orçamento|nota fiscal|nfe|nf-e|agenda|equipe|comissao|comissão|venda|relatorio|relatório|faturar|faturado|faturamento|receber|recebimento|sem\s+receber|sem\s+faturar)\b/.test(t);
 
     const diagnostico = /\b(falh|falhando|falha|lenta|marcha lenta|engasg|engasga|sem forca|sem força|fraco|partida|sem partida|aquec|superaquec|barulho|ruido|ruído|vibr|apag|apaga|morrendo|morre|injec|injeção|ignic|ignição|vela|velas|bobina|bico|sensor|sonda|scanner|obd|dtc|codigo|código|p\s*0?\d{3,4})\b/i.test(raw);
 
