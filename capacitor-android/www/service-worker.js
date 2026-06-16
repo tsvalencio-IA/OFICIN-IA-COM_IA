@@ -1,4 +1,4 @@
-// Cache rev: 20260616-ia-interna-nf-os-window-v3
+// Cache rev: 20260616-v13-cirurgica-sync-web-apk-sw-os
 /**
  * thIAguinho ERP — Service Worker
  *
@@ -13,7 +13,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260616-hotfix-nf-os-estoque-financeiro-layout-pecas';
+const CACHE_VERSION = 'oficinia-20260616-v13-cirurgica-sync-web-apk-sw-os';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

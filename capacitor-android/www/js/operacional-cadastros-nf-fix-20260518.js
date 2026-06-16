@@ -386,6 +386,110 @@
     return Array.from(porId.values());
   }
 
+  function formaFinanceiraNormNF(v) {
+    return normNF(v).replace(/cartao/g, 'cartao');
+  }
+
+  function formaFinanceiraAVistaNF(forma) {
+    const f = formaFinanceiraNormNF(forma);
+    return f.includes('dinheiro') || f.includes('pix') || f.includes('debito');
+  }
+
+  function formaFinanceiraParcelavelNF(forma) {
+    const f = formaFinanceiraNormNF(forma);
+    return f.includes('boleto') || f.includes('parcelado') || f.includes('credito');
+  }
+
+  function formaFinanceiraAgrupadaNF(forma) {
+    return formaFinanceiraNormNF(forma).includes('agrupamento');
+  }
+
+  function tituloFinanceiroNFOperacional(f) {
+    const texto = normNF([f?.status, f?.pgto, f?.desc].filter(Boolean).join(' '));
+    if (texto.includes('ajuste auditado') || texto.includes('abatimento devolucao')) return false;
+    if (texto.includes('cancelado por edicao') || texto.includes('excluido')) return false;
+    return true;
+  }
+
+  function ordenaTitulosFinanceirosNF(a, b) {
+    const pa = Number(a?.numeroParcela || a?.parcela || String(a?.desc || '').match(/\((\d+)\/\d+\)/)?.[1] || 0) || 0;
+    const pb = Number(b?.numeroParcela || b?.parcela || String(b?.desc || '').match(/\((\d+)\/\d+\)/)?.[1] || 0) || 0;
+    return (pa - pb) || String(a?.venc || '').localeCompare(String(b?.venc || ''));
+  }
+
+  function normalizarParcelasFinanceirasNF(parcelas, totalNF, forma) {
+    const total = Math.round((Number(totalNF || 0) || 0) * 100) / 100;
+    let arr = (Array.isArray(parcelas) ? parcelas : [])
+      .map((p, idx) => ({
+        numero: p.numero || String(idx + 1).padStart(3, '0'),
+        vencimento: p.vencimento || p.venc || hojeISOEdicao(),
+        valor: Math.round((Number(p.valor || 0) || 0) * 100) / 100
+      }))
+      .filter(p => p.valor > 0 || p.vencimento);
+    if (!arr.length) arr = [{ numero: '001', vencimento: val('nfVenc') || hojeISOEdicao(), valor: total }];
+    if (formaFinanceiraAVistaNF(forma)) arr = [{ numero: '001', vencimento: val('nfVenc') || arr[0]?.vencimento || hojeISOEdicao(), valor: total }];
+    const soma = Math.round(arr.reduce((s, p) => s + (Number(p.valor) || 0), 0) * 100) / 100;
+    const diff = Math.round((total - soma) * 100) / 100;
+    if (arr.length && Math.abs(diff) >= 0.01) {
+      arr[arr.length - 1].valor = Math.round(((Number(arr[arr.length - 1].valor) || 0) + diff) * 100) / 100;
+      arr[arr.length - 1].ajusteAutomaticoEdicaoNF = diff;
+    }
+    return arr;
+  }
+
+  function financeiroTelaEdicaoNF(antes, novoTotal, titulosOriginais) {
+    const forma = val('nfPgtoForma') || titulosOriginais?.[0]?.pgto || 'Dinheiro';
+    const formaAgrupada = formaFinanceiraAgrupadaNF(forma);
+    const formaAVista = formaFinanceiraAVistaNF(forma);
+    const fornecedorNome = antes?.fornecedorSnapshot?.nome || antes?.fornecedorNome || '';
+    const base = {
+      forma,
+      formaAgrupada,
+      formaAVista,
+      status: formaAVista ? 'Pago' : (formaAgrupada ? 'Aguardando boleto agrupado' : 'Pendente'),
+      fornecedorNome
+    };
+    if (formaAgrupada) {
+      const venc = val('nfAgrVenc') || val('nfVenc') || hojeISOEdicao();
+      return Object.assign(base, {
+        parcelas: [{
+          numero: '001',
+          vencimento: venc,
+          valor: Math.round((Number(novoTotal || 0) || 0) * 100) / 100,
+          agrupamentoDias: Math.max(1, parseInt(val('nfAgrPeriodoDias') || '7', 10) || 7)
+        }]
+      });
+    }
+    const parcelasTela = typeof W.thiaNFCollectParcelas === 'function' ? W.thiaNFCollectParcelas() : [];
+    const parcelas = formaFinanceiraParcelavelNF(forma) && !formaAVista
+      ? normalizarParcelasFinanceirasNF(parcelasTela, novoTotal, forma)
+      : normalizarParcelasFinanceirasNF([{ numero: '001', vencimento: val('nfVenc') || hojeISOEdicao(), valor: novoTotal }], novoTotal, forma);
+    return Object.assign(base, { parcelas });
+  }
+
+  async function preencherFinanceiroEdicaoNF(nfId, nf) {
+    const titulos = (await carregarFinanceiroNF(nfId, nf)).filter(tituloFinanceiroNFOperacional).sort(ordenaTitulosFinanceirosNF);
+    W._thiaNfEditFinanceiroBefore = clone(titulos);
+    if (!titulos.length) return;
+    const primeiro = titulos[0] || {};
+    const forma = primeiro.agrupamentoPeriodo ? 'AgrupamentoPeriodo' : (primeiro.pgto || 'Dinheiro');
+    setValue('nfPgtoForma', forma);
+    setValue('nfVenc', String(primeiro.venc || '').slice(0, 10));
+    if (primeiro.agrupamentoPeriodo) {
+      setValue('nfAgrPeriodoDias', primeiro.agrupamentoDias || '');
+      setValue('nfAgrVenc', String(primeiro.agrupamentoVencimentoPrevisto || primeiro.venc || '').slice(0, 10));
+      return;
+    }
+    const parcelas = titulos.map((f, idx) => ({
+      numero: f.numeroParcela || f.parcela || String(idx + 1).padStart(3, '0'),
+      vencimento: String(f.venc || '').slice(0, 10),
+      valor: Number(f.valor || 0) || 0
+    }));
+    if (typeof W.thiaNFRenderParcelas === 'function' && (parcelas.length > 1 || formaFinanceiraParcelavelNF(forma))) {
+      W.thiaNFRenderParcelas(parcelas, { manual: true });
+    }
+  }
+
   function estoqueAtualPorVinculo(v) {
     return (J().estoque || []).find(p => String(p.id || '') === String(v.estoqueId || ''))
       || (J().estoque || []).find(p => normNF(p.codigo || p.codigoFornecedor || p.oem || '') && normNF(p.codigo || p.codigoFornecedor || p.oem || '') === normNF(v.codigo || v.codigoFornecedor || v.codigoComercial || ''));
@@ -567,8 +671,7 @@
   }
 
   async function ajustarFinanceiroEdicaoNF(batch, nfId, antes, novoTotal, motivo) {
-    const titulos = await carregarFinanceiroNF(nfId, antes);
-    if (!titulos.length) return { titulos: 0, ajuste: 0 };
+    const titulos = (await carregarFinanceiroNF(nfId, antes)).filter(tituloFinanceiroNFOperacional).sort(ordenaTitulosFinanceirosNF);
     const totalAnterior = titulos.reduce((s, f) => s + (Number(f.valor) || 0), 0);
     const diff = Math.round((Number(novoTotal || 0) - totalAnterior) * 100) / 100;
     const bloqueado = titulos.some(f => /pago|liquidado|baixado|agrupado|cancelado/.test(normNF(f.status)) || f.pacoteBoletoId || f.bloqueadoPagamentoIndividual);
@@ -591,19 +694,88 @@
       }
       return { titulos: titulos.length, ajuste: diff };
     }
-    if (titulos.length === 1 && titulos[0].id) {
-      batch.update(db().collection('financeiro').doc(titulos[0].id), { valor: Number(novoTotal || 0), status: titulos[0].status || 'Pendente', atualizadoPorEdicaoNF: true, motivoEdicaoNF: motivo, updatedAt: agora });
-    } else {
-      const base = totalAnterior || 1;
-      titulos.forEach((f, idx) => {
-        if (!f.id) return;
-        const valor = idx === titulos.length - 1
-          ? Math.round((Number(novoTotal || 0) - titulos.slice(0, idx).reduce((s, x) => s + ((Number(x.valor) || 0) / base) * Number(novoTotal || 0), 0)) * 100) / 100
-          : Math.round((((Number(f.valor) || 0) / base) * Number(novoTotal || 0)) * 100) / 100;
-        batch.update(db().collection('financeiro').doc(f.id), { valor, atualizadoPorEdicaoNF: true, motivoEdicaoNF: motivo, updatedAt: agora });
+    const tela = financeiroTelaEdicaoNF(antes, novoTotal, titulos);
+    const parcelas = tela.parcelas || [];
+    const fornecedorId = val('nfFornec') || antes.fornecedorId || '';
+    const chaveNFe = antes.chave || '';
+    const numeroNF = val('nfNumero') || antes.numero || 's/n';
+    const fornecedorNome = tela.fornecedorNome || antes.fornecedorSnapshot?.nome || antes.fornecedorNome || 'Fornecedor';
+    const grupoKey = tela.formaAgrupada
+      ? ['fornecedor', fornecedorId || antes.fornecedorId || 'sem_fornecedor', 'periodo', parcelas[0]?.agrupamentoDias || 7, parcelas[0]?.vencimento || hojeISOEdicao()].join('_').replace(/[.#$\[\]\/]/g, '_')
+      : '';
+    let atualizados = 0;
+    let criados = 0;
+    let cancelados = 0;
+    parcelas.forEach((p, idx) => {
+      const existente = titulos[idx];
+      const totalParcelas = parcelas.length;
+      const payloadTitulo = {
+        tenantId: J().tid,
+        tipo: 'Saida',
+        status: tela.status,
+        desc: `NF ${numeroNF} — ${fornecedorNome}${totalParcelas > 1 ? ` (${idx + 1}/${totalParcelas})` : ''}`,
+        valor: Number(p.valor || 0) || 0,
+        pgto: tela.formaAgrupada ? 'Agrupamento por periodo' : tela.forma,
+        venc: p.vencimento || hojeISOEdicao(),
+        notaFiscalId: nfId,
+        chaveNFe,
+        fornecedorId,
+        fornecedorNome,
+        numeroParcela: idx + 1,
+        parcela: idx + 1,
+        totalParcelas,
+        pgtoParcelas: totalParcelas,
+        agrupamentoPeriodo: !!tela.formaAgrupada,
+        aguardaBoletoAgrupado: !!tela.formaAgrupada,
+        agrupamentoDias: tela.formaAgrupada ? (p.agrupamentoDias || 7) : null,
+        agrupamentoVencimentoPrevisto: tela.formaAgrupada ? (p.vencimento || hojeISOEdicao()) : null,
+        agrupamentoFornecedorKey: grupoKey || null,
+        bloqueadoPagamentoIndividual: !!tela.formaAgrupada,
+        atualizadoPorEdicaoNF: true,
+        motivoEdicaoNF: motivo,
+        updatedAt: agora
+      };
+      if (p.ajusteAutomaticoEdicaoNF) payloadTitulo.ajusteAutomaticoEdicaoNF = p.ajusteAutomaticoEdicaoNF;
+      if (existente?.id) {
+        batch.update(db().collection('financeiro').doc(existente.id), payloadTitulo);
+        atualizados += 1;
+      } else {
+        batch.set(db().collection('financeiro').doc(), Object.assign({}, payloadTitulo, { createdAt: agora }));
+        criados += 1;
+      }
+    });
+    titulos.slice(parcelas.length).forEach(f => {
+      if (!f.id) return;
+      batch.update(db().collection('financeiro').doc(f.id), {
+        status: 'Cancelado por edicao de NF',
+        valor: 0,
+        canceladoPorEdicaoNF: true,
+        motivoEdicaoNF: motivo,
+        updatedAt: agora
       });
+      cancelados += 1;
+    });
+    if (!titulos.length && !parcelas.length && Number(novoTotal || 0) > 0) {
+      batch.set(db().collection('financeiro').doc(), {
+        tenantId: J().tid,
+        tipo: 'Saida',
+        status: 'Pendente',
+        desc: `NF ${numeroNF} — ${fornecedorNome}`,
+        valor: Number(novoTotal || 0),
+        pgto: val('nfPgtoForma') || 'A Combinar',
+        venc: val('nfVenc') || hojeISOEdicao(),
+        notaFiscalId: nfId,
+        chaveNFe,
+        fornecedorId,
+        fornecedorNome,
+        criadoPorEdicaoNF: true,
+        motivoEdicaoNF: motivo,
+        createdAt: agora,
+        updatedAt: agora
+      });
+      criados += 1;
     }
-    return { titulos: titulos.length, ajuste: diff };
+    return { titulos: titulos.length, atualizados, criados, cancelados, ajuste: diff, forma: tela.forma, parcelas: parcelas.length };
   }
 
   function hojeISOEdicao() {
@@ -647,6 +819,7 @@
       }), { manualTotal:true, forceTotal:true });
     }
     W.calcNFTotal?.();
+    await preencherFinanceiroEdicaoNF(id, n);
     setNFSavingMode(true);
     W.abrirModal?.('modalNF');
   }

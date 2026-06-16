@@ -804,28 +804,6 @@ function atualizarMetaServicoLinhaOS(row) {
   if (!row) return;
   const veiculoAtual = window._osVeiculoAtual?.() || {};
   const meta = metaServicoResumoOS({
-    codigoTabela: row.dataset?.codigoTabela,
-    sistemaTabela: row.dataset?.sistemaTabela || row.dataset?.secaoHoraLabel,
-    secaoHoraLabel: row.dataset?.secaoHoraLabel,
-    tipoVeiculoTabela: row.dataset?.tipoVeiculoTabela
-  }, veiculoAtual);
-  if (meta.tipoVeiculo && !row.dataset.tipoVeiculoTabela) row.dataset.tipoVeiculoTabela = meta.tipoVeiculo;
-  const temMeta = meta.codigo || meta.sistema || meta.tipoVeiculo;
-  let el = row.querySelector('.serv-tempa-info-os');
-  if (!temMeta) { if (el) el.remove(); return; }
-  if (!el) {
-    el = document.createElement('div');
-    el.className = 'serv-tempa-info-os';
-    el.style.cssText = 'grid-column:1/-1;font-family:var(--fm);font-size:0.60rem;letter-spacing:.35px;color:var(--muted);background:rgba(0,212,255,.045);border:1px solid rgba(0,212,255,.14);border-radius:4px;padding:5px 7px;line-height:1.35;';
-    row.appendChild(el);
-  }
-  el.innerHTML = `${meta.codigo ? `<b style="color:var(--cyan);">CÓD. ${escOS(meta.codigo)}</b>` : ''}${meta.sistema ? ` · Sistema: ${escOS(meta.sistema)}` : ''}${meta.tipoVeiculo ? ` · Tipo veículo: ${escOS(meta.tipoVeiculo)}` : ''}`;
-}
-
-function atualizarMetaServicoLinhaOS(row) {
-  if (!row) return;
-  const veiculoAtual = window._osVeiculoAtual?.() || {};
-  const meta = metaServicoResumoOS({
     codigoInterno: row.dataset?.codigoInterno,
     codigoTabela: row.dataset?.codigoTabela,
     sistemaTabela: row.dataset?.sistemaTabela || row.dataset?.secaoHoraLabel,
@@ -6140,14 +6118,6 @@ function _ciliaAtualizarMetaServico(row, texto, tipo) {
   const cor = tipo === 'warn' ? 'var(--warn)' : tipo === 'ok' ? 'var(--success)' : 'var(--muted)';
   meta.style.color = cor;
   meta.innerHTML = `${texto}<span class="serv-desc-val" style="float:right;color:var(--ok);">R$ ${_ciliaValorServicoFmt(row)}</span>`;
-}
-
-function _ciliaMetaTempaHTML(itemTempa, secaoInfo, valorHora, prefixo) {
-  const tempo = numBR(itemTempa?.tempo || 0).toFixed(2).replace('.', ',');
-  const horaTxt = valorHora ? ` · R$ ${numBR(valorHora).toFixed(2).replace('.', ',')}/h` : '';
-  const secaoTxt = secaoInfo?.label ? ` · ${escOS(secaoInfo.label)}` : '';
-  const tipoTxt = extrairTipoVeiculoTempaOS({ sistemaTabela: itemTempa?.sistema, sistema: itemTempa?.sistema }, window._osVeiculoAtual?.() || {});
-  return `${prefixo || 'Tabela Tempária'} · ${escOS(itemTempa?.sistema || '-')} · cód. ${escOS(itemTempa?.codigo || '-')} · tipo veículo ${escOS(tipoTxt || '-')} · TMO ${tempo}h${secaoTxt}${horaTxt}`;
 }
 
 function _ciliaMetaTempaHTML(itemTempa, secaoInfo, valorHora, prefixo) {
