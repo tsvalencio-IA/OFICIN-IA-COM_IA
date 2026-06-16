@@ -598,10 +598,13 @@
     const total = calcTotaisNF().totalFiscal;
     const dups = [];
     const baseDate = new Date(base + 'T12:00:00');
+    let acumulado = 0;
     for(let i=0;i<n;i++){
       const d = new Date(baseDate); d.setMonth(d.getMonth()+i);
       const iso = d.toISOString().slice(0,10);
-      dups.push({ numero:String(i+1).padStart(3,'0'), vencimento:iso, valor: Math.round((total/n)*100)/100 });
+      const valor = i === n - 1 ? Math.round((total - acumulado) * 100) / 100 : Math.round((total/n)*100)/100;
+      acumulado = Math.round((acumulado + valor) * 100) / 100;
+      dups.push({ numero:String(i+1).padStart(3,'0'), vencimento:iso, valor });
     }
     renderParcels(dups);
   }
@@ -1314,6 +1317,24 @@
     });
     return out;
   }
+  function refletirPecasNFNaOSTelaAtual(osId, pecas){
+    if (!$('osId') || String($('osId').value || '') !== String(osId || '')) return;
+    if (!$('containerPecasOS') || typeof W.renderPecaOSRow !== 'function') return;
+    const chavesTela = new Set(Array.from(D.querySelectorAll('#containerPecasOS [data-origem-n-f-item-key], #containerPecasOS [data-origem-nf-item-key]')).map(el => el.dataset?.origemNFItemKey || el.dataset?.origemNFItemkey || '').filter(Boolean));
+    Array.from(D.querySelectorAll('#containerPecasOS > div')).forEach(row => {
+      const k = row.dataset?.origemNFItemKey || row.dataset?.origemNfItemKey || '';
+      if (k) chavesTela.add(k);
+    });
+    (Array.isArray(pecas) ? pecas : []).forEach(real => {
+      const visivel = pecaOrcamentoFromNF(real);
+      if (!visivel) return;
+      const key = visivel.origemNFItemKey || '';
+      if (key && chavesTela.has(key)) return;
+      W.renderPecaOSRow(visivel);
+      if (key) chavesTela.add(key);
+    });
+    W.calcOSTotal?.();
+  }
   async function registrarPecasReaisOSNF(batch, itens, nfRef, nfPayload, fornecedorId, fornecedorNome){
     const porOS = new Map();
     const semDestino = [];
@@ -1379,6 +1400,7 @@
         });
         W.atualizarResumoPecasReais177?.();
       }
+      if (!osClienteOficialNF(entry.os)) refletirPecasNFNaOSTelaAtual(osId, pecas);
     }
     return { os: porOS.size, pecas: totalPecas, registrosAuxiliares };
   }
@@ -1657,12 +1679,13 @@
         batch.set(W.db.collection('nf_itens_vinculos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, fornecedorNome, estoqueId, codigo:destItem.codigo||'', codigoFornecedor:destItem.codigoFornecedor||destItem.codigo||'', codigoComercial:destItem.codigoComercial||destItem.oem||'', ean:destItem.ean||'', desc:destItem.descricao, marca:destItem.marca||'', qtd:destItem.quantidade, quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, quantidadeOperacionalTotal:entradaQtd, fatorOperacional:item.fatorOperacional||1, destinoIndice:destItem.destinoIndice ?? 0, custo:destItem.valorUnitario, valorUnitarioFiscal:item.valorUnitario||0, desconto:item.desconto, total:destItem.valorLiquido, ncm:destItem.ncm||'', cest:destItem.cest||'', cfop:destItem.cfop||'', finalidade:destItem.destino||destItem.finalidade||'estoque', vinculo:destItem.vinculo||'', osId:destItem.osId||'', placa:destItem.placa||'', estoqueBaixadoAutomatico:vinculadoNaEntrada, createdAt:new Date().toISOString() }));
       }
     }
-    const parcelas = collectParcelas();
     const forma = getVal('nfPgtoForma') || 'Dinheiro';
     const formaNorm = formaPagamentoNFNorm(forma);
     const formaAVista = formaPagamentoNFAVista(forma);
     const formaAgrupamentoPeriodo = forma === 'AgrupamentoPeriodo' || formaNorm.includes('agrupamento');
     const formaPermiteParcelas = !formaAgrupamentoPeriodo && formaPagamentoNFParcelavel(forma);
+    if (formaPermiteParcelas && !formaAVista && !collectParcelas().length) gerarParcelasManuais();
+    const parcelas = collectParcelas();
     const parcelasFinanceiras = formaPermiteParcelas && !formaAVista ? parcelas : [];
     const statusFinanceiro = formaAVista ? 'Pago' : 'Pendente';
     if(formaAgrupamentoPeriodo){

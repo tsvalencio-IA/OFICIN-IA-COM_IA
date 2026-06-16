@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260615-hotfix-visualizar-orcamento-logo-sem-fotos-campos-brancos';
+const CACHE_VERSION = 'oficinia-20260616-hotfix-nf-os-estoque-financeiro-layout-pecas';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
