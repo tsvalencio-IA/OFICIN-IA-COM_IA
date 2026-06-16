@@ -369,6 +369,131 @@ function optionPecaEstoqueOS(p, selected) {
   return `<option value="${escOS(p.id || '')}" data-codigo="${escOS(codigo)}" data-desc="${escOS(desc)}" data-custo="${custo}" data-venda="${venda}" data-fornecedor="${escOS(fornecedor)}" data-nf="${escOS(nf)}" data-data-compra="${escOS(dataCompraPecaEstoqueOS(p))}" data-ean="${escOS(p?.ean || '')}" data-ncm="${escOS(p?.ncm || '')}" data-cfop="${escOS(p?.cfop || '')}" ${selected ? 'selected' : ''}>${escOS(detalhes)}</option>`;
 }
 
+
+// Busca assistida de peças cadastradas dentro da O.S.
+// Importante: esta camada NÃO altera o formato salvo da O.S., NÃO salva nada sozinha,
+// NÃO baixa estoque e NÃO muda financeiro. Ela apenas filtra visualmente a lista já existente.
+function normalizarBuscaPecaOS(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function textoBuscaPecaEstoqueOS(p) {
+  return normalizarBuscaPecaOS([
+    p?.codigo,
+    p?.codigoFornecedor,
+    p?.codigoComercial,
+    p?.oem,
+    p?.ean,
+    p?.ref,
+    p?.desc,
+    p?.descricao,
+    p?.marca,
+    p?.fornecedor,
+    p?.fornecedorNome,
+    p?.nomeFornecedor,
+    p?.nfNumero,
+    p?.notaFiscal,
+    p?.nf,
+    p?.numeroNF,
+    p?.pedido
+  ].filter(Boolean).join(' '));
+}
+
+function pecasEstoqueFiltradasOS(termo, selecionado, incluirSemSaldo) {
+  const busca = normalizarBuscaPecaOS(termo);
+  const termos = busca ? busca.split(/\s+/).filter(Boolean) : [];
+  return (window.J?.estoque || []).filter(p => {
+    const id = String(p?.id || '');
+    const qtd = numBR(p?.qtd || 0);
+    const manterSelecionada = selecionado && id === String(selecionado);
+    if (!incluirSemSaldo && qtd <= 0 && !manterSelecionada) return false;
+    if (!termos.length) return true;
+    const alvo = textoBuscaPecaEstoqueOS(p);
+    return termos.every(t => alvo.includes(t));
+  }).slice(0, 80);
+}
+
+function optionsPecasEstoqueFiltradasOS(selecionado, termo, incluirSemSaldo) {
+  const lista = pecasEstoqueFiltradasOS(termo, selecionado, incluirSemSaldo);
+  const temSelecionado = selecionado && lista.some(p => String(p?.id || '') === String(selecionado));
+  const itemSelecionado = selecionado && !temSelecionado ? estoqueItemOS(selecionado) : null;
+  const itens = itemSelecionado ? [itemSelecionado].concat(lista) : lista;
+  return '<option value="">Selecionar peca...</option>'
+    + itens.map(p => optionPecaEstoqueOS(p, String(p?.id || '') === String(selecionado))).join('')
+    + '<option value="__avulsa__" data-venda="0" data-desc="">+ Peca nao cadastrada (digitar manualmente)</option>';
+}
+
+window.filtrarPecasOS = function(input) {
+  const row = input?.closest?.('div');
+  if (!row) return;
+  const sel = row.querySelector('.peca-sel');
+  if (!sel) return;
+  const atual = sel.value || '';
+  sel.innerHTML = optionsPecasEstoqueFiltradasOS(atual, input.value || '', false);
+  if (atual && Array.from(sel.options).some(o => String(o.value) === String(atual))) sel.value = atual;
+  const info = row.querySelector('.peca-estoque-info');
+  if (info && normalizarBuscaPecaOS(input.value)) {
+    const qtd = Math.max(0, sel.options.length - 2);
+    info.innerHTML = `<b>Busca:</b> ${escOS(input.value)} &nbsp; | &nbsp; <b>Resultados:</b> ${qtd}`;
+  } else {
+    atualizarPecaOSInfoRow(row);
+  }
+};
+
+window.selecionarPrimeiraPecaFiltradaOS = function(input, ev) {
+  if (ev && ev.key !== 'Enter') return;
+  ev?.preventDefault?.();
+  const row = input?.closest?.('div');
+  const sel = row?.querySelector?.('.peca-sel');
+  if (!row || !sel) return;
+  const primeira = Array.from(sel.options).find(o => o.value && o.value !== '__avulsa__');
+  if (!primeira) return;
+  sel.value = primeira.value;
+  window.selecionarPecaOS?.(sel);
+};
+
+function optionsPecasReaisEstoqueFiltradasOS(selecionado, termo) {
+  const lista = pecasEstoqueFiltradasOS(termo, selecionado, true);
+  const temSelecionado = selecionado && lista.some(p => String(p?.id || '') === String(selecionado));
+  const itemSelecionado = selecionado && !temSelecionado ? estoqueItemOS(selecionado) : null;
+  const itens = itemSelecionado ? [itemSelecionado].concat(lista) : lista;
+  return '<option value="">Nao baixar estoque</option>' + itens.map(e => {
+    const codigo = codigoPecaEstoqueOS(e);
+    const desc = String(e?.desc || e?.descricao || '').trim();
+    const custo = valorCompraPecaEstoqueOS(e);
+    const fornecedor = fornecedorPecaEstoqueOS(e);
+    const nf = nfPecaEstoqueOS(e);
+    const label = [codigo, desc, fornecedor ? `Forn: ${fornecedor}` : '', nf ? `NF: ${nf}` : '', `Saldo: ${numBR(e?.qtd || 0)}`].filter(Boolean).join(' | ');
+    return `<option value="${escOS(e?.id || '')}" data-codigo="${escOS(codigo)}" data-desc="${escOS(desc)}" data-custo="${custo}" ${String(e?.id || '') === String(selecionado) ? 'selected' : ''}>${escOS(label || 'Peca sem descricao')}</option>`;
+  }).join('');
+}
+
+window.filtrarPecaRealEstoqueOS = function(input) {
+  const row = input?.closest?.('div');
+  if (!row) return;
+  const sel = row.querySelector('.pr-estoque');
+  if (!sel) return;
+  const atual = sel.value || '';
+  sel.innerHTML = optionsPecasReaisEstoqueFiltradasOS(atual, input.value || '');
+  if (atual && Array.from(sel.options).some(o => String(o.value) === String(atual))) sel.value = atual;
+};
+
+window.selecionarPrimeiraPecaRealFiltradaOS = function(input, ev) {
+  if (ev && ev.key !== 'Enter') return;
+  ev?.preventDefault?.();
+  const row = input?.closest?.('div');
+  const sel = row?.querySelector?.('.pr-estoque');
+  if (!row || !sel) return;
+  const primeira = Array.from(sel.options).find(o => o.value);
+  if (!primeira) return;
+  sel.value = primeira.value;
+  window.selecionarPecaRealEstoque?.(sel);
+};
+
 function aplicarPecaEstoqueSelecionadaOS(row, item, marcarBaixa) {
   if (!row) return;
   const info = row.querySelector('.peca-estoque-info');
@@ -2120,10 +2245,9 @@ window.adicionarPecaOS = function() {
   } else {
     // Cliente normal — usa estoque, mas permite peça avulsa se não tiver no estoque
     sel.style.cssText = 'display:grid;grid-template-columns:minmax(190px,.85fr) minmax(90px,.28fr) minmax(280px,1.25fr) 58px 82px 82px 150px 32px;gap:7px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
-    const optsCompleto = '<option value="">Selecionar peca...</option>'
-      + J.estoque.filter(p => (p.qtd || 0) > 0).map(p => optionPecaEstoqueOS(p, false)).join('')
-      + '<option value="__avulsa__" data-venda="0" data-desc="">+ Peca nao cadastrada (digitar manualmente)</option>';
+    const optsCompleto = optionsPecasEstoqueFiltradasOS('', '', false);
     sel.innerHTML = `
+      <input type="search" class="j-input peca-busca-estoque" placeholder="Buscar peça cadastrada por código, descrição, fornecedor ou NF..." oninput="window.filtrarPecasOS(this)" onkeydown="window.selecionarPrimeiraPecaFiltradaOS(this,event)" style="grid-column:1/-1;font-family:var(--fm);font-size:.72rem;background:rgba(34,197,94,.05);border:1px solid rgba(34,197,94,.22);" autocomplete="off">
       <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${optsCompleto}</select>
       <input type="text" class="j-input peca-codigo" placeholder="Código O.S." oninput="window.calcOSTotal()" title="Código exibido para o cliente na O.S.">
       <input type="text" class="j-input peca-desc-livre" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição exibida para o cliente na O.S.">
@@ -2337,8 +2461,9 @@ window.renderPecaOSRow = function(p) {
     div.dataset.origemNFVinculada = p.origemNFVinculada ? '1' : '';
     div.dataset.origemPecaOS = p.origem || '';
     div.dataset.pecaDataCompra = p.dataCompra || '';
-    const opts = '<option value="">' + escOS(p.desc || 'Selecionar peca...') + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => optionPecaEstoqueOS(x, x.id === p.estoqueId)).join('');
+    const opts = optionsPecasEstoqueFiltradasOS(p.estoqueId || '', '', false);
     div.innerHTML = `
+      <input type="search" class="j-input peca-busca-estoque" value="${escOS(p.codigoExibicao || p.codigo || p.desc || p.descricao || '')}" placeholder="Buscar peça cadastrada por código, descrição, fornecedor ou NF..." oninput="window.filtrarPecasOS(this)" onkeydown="window.selecionarPrimeiraPecaFiltradaOS(this,event)" style="grid-column:1/-1;font-family:var(--fm);font-size:.72rem;background:rgba(34,197,94,.05);border:1px solid rgba(34,197,94,.22);" autocomplete="off">
       <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${opts}</select>
       <input type="text" class="j-input peca-codigo" value="${escOS(p.codigoExibicao || p.codigo || '')}" placeholder="Código O.S." oninput="window.calcOSTotal()" title="Código exibido para o cliente na O.S.">
       <input type="text" class="j-input peca-desc-livre" value="${escOS(p.descricaoExibicao || p.desc || p.descricao || '')}" placeholder="Descrição na O.S." oninput="window.calcOSTotal()" title="Descrição exibida para o cliente na O.S.">
@@ -4640,13 +4765,12 @@ window.adicionarPecaRealRow = function(p) {
   });
   const div = document.createElement('div');
   div.style.cssText = 'display:grid;grid-template-columns:110px 1fr 50px 130px 110px 130px 105px 105px 32px;gap:6px;align-items:center;background:rgba(255,59,59,0.05);padding:6px;border-radius:3px;border:1px solid rgba(255,59,59,0.2);';
-  const estoqueOpts = '<option value="">Nao baixar estoque</option>' + (window.J?.estoque || [])
-    .map(e => `<option value="${escOS(e.id)}" data-codigo="${escOS(e.codigo || '')}" data-desc="${escOS(e.desc || '')}" data-custo="${numBR(e.custo || 0)}" ${String(e.id) === String(estoqueReal) ? 'selected' : ''}>${escOS(e.codigo || '')} ${escOS(e.desc || '')} (${e.qtd || 0})</option>`)
-    .join('');
+  const estoqueOpts = optionsPecasReaisEstoqueFiltradasOS(estoqueReal, '');
   div.innerHTML = `
     <input type="text" class="j-input pr-codigo" value="${_escVal(p.codigo||'')}" placeholder="Cód. real" style="font-family:var(--fm);font-size:0.75rem;" title="Código OEM/real da peça instalada">
     <input type="text" class="j-input pr-desc" value="${_escVal(p.desc||'')}" placeholder="Descrição real instalada">
     <input type="number" class="j-input pr-qtd" value="${p.qtd||1}" min="1" placeholder="Qtd">
+    <input type="search" class="j-input pr-busca-estoque" value="${_escVal(codigoReal || descReal)}" placeholder="Buscar no estoque para peça real trocada..." oninput="window.filtrarPecaRealEstoqueOS(this)" onkeydown="window.selecionarPrimeiraPecaRealFiltradaOS(this,event)" style="grid-column:1/-1;font-family:var(--fm);font-size:.72rem;background:rgba(255,59,59,.05);border:1px solid rgba(255,59,59,.22);" autocomplete="off">
     <select class="j-select pr-estoque" onchange="window.selecionarPecaRealEstoque(this)" title="Selecione uma peça do estoque somente se esta peça real deve baixar estoque">${estoqueOpts}</select>
     <input type="text" class="j-input pr-fornec" value="${_escVal(p.fornecedor||'')}" placeholder="Fornecedor">
     <input type="text" class="j-input pr-nf" value="${_escVal(p.nf||'')}" placeholder="Nº Nota Fiscal">
@@ -4684,14 +4808,13 @@ window.adicionarPecaRealRow = function(p) {
   });
   const div = document.createElement('div');
   div.style.cssText = 'display:grid;grid-template-columns:110px 1fr 50px 130px 110px 130px 105px 105px 32px;gap:6px;align-items:center;background:rgba(255,59,59,0.05);padding:6px;border-radius:3px;border:1px solid rgba(255,59,59,0.2);';
-  const estoqueOpts = '<option value="">Nao baixar estoque</option>' + (window.J?.estoque || [])
-    .map(e => `<option value="${escOS(e.id)}" data-codigo="${escOS(e.codigo || '')}" data-desc="${escOS(e.desc || '')}" data-custo="${numBR(e.custo || 0)}" ${String(e.id) === String(estoqueReal) ? 'selected' : ''}>${escOS(e.codigo || '')} ${escOS(e.desc || '')} (${e.qtd || 0})</option>`)
-    .join('');
+  const estoqueOpts = optionsPecasReaisEstoqueFiltradasOS(estoqueReal, '');
   div.innerHTML = `
     <input type="hidden" class="pr-meta" value="${_escVal(JSON.stringify(metaReal))}">
     <input type="text" class="j-input pr-codigo" value="${_escVal(codigoReal)}" placeholder="Cod. real" style="font-family:var(--fm);font-size:0.75rem;" title="Codigo OEM/real da peca">
     <input type="text" class="j-input pr-desc" value="${_escVal(descReal)}" placeholder="Descricao real">
     <input type="number" class="j-input pr-qtd" value="${p.qtd||1}" min="1" placeholder="Qtd">
+    <input type="search" class="j-input pr-busca-estoque" value="${_escVal(codigoReal || descReal)}" placeholder="Buscar no estoque para peça real trocada..." oninput="window.filtrarPecaRealEstoqueOS(this)" onkeydown="window.selecionarPrimeiraPecaRealFiltradaOS(this,event)" style="grid-column:1/-1;font-family:var(--fm);font-size:.72rem;background:rgba(255,59,59,.05);border:1px solid rgba(255,59,59,.22);" autocomplete="off">
     <select class="j-select pr-estoque" onchange="window.selecionarPecaRealEstoque(this)" title="Selecione estoque apenas se deve baixar estoque">${estoqueOpts}</select>
     <input type="text" class="j-input pr-fornec" value="${_escVal(fornecedorReal)}" placeholder="Fornecedor">
     <input type="text" class="j-input pr-nf" value="${_escVal(nfReal)}" placeholder="NF">
