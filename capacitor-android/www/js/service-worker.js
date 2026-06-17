@@ -156,3 +156,5 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* Powered by thIAguinho Soluções Digitais */
+
+// cache-bust: boleto-select-link-comia-20260617

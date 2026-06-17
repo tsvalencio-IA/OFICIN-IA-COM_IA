@@ -83,6 +83,48 @@ function financeiroFornecedorConfereFin(f, fornecedorId) {
     return txt.includes(nome);
 }
 
+
+// Seleção visual no financeiro para agrupar várias NFs/contas em um boleto.
+// Não altera dados até o usuário confirmar no modal. Mantém rastreabilidade e usa as mesmas regras de agrupamento.
+window.financeiroAgruparSelecionados = window.financeiroAgruparSelecionados || new Set();
+function financeiroPodeSelecionarTabelaFin(f) {
+    return financeiroEhSaidaPendenteAgrupavelFin(f);
+}
+function financeiroLimparSelecaoInvalidaFin() {
+    const idsValidos = new Set((J.financeiro || []).filter(financeiroPodeSelecionarTabelaFin).map(f => f.id));
+    [...window.financeiroAgruparSelecionados].forEach(id => { if (!idsValidos.has(id)) window.financeiroAgruparSelecionados.delete(id); });
+}
+function financeiroNotasSelecionadasTabelaFin() {
+    financeiroLimparSelecaoInvalidaFin();
+    return [...window.financeiroAgruparSelecionados].map(id => (J.financeiro || []).find(f => f.id === id)).filter(Boolean);
+}
+function financeiroAtualizarResumoSelecaoTabelaFin() {
+    const notas = financeiroNotasSelecionadasTabelaFin();
+    const total = notas.reduce((s,f) => s + Number(f.valor || 0), 0);
+    if ($('finResumoSelecaoBoleto')) $('finResumoSelecaoBoleto').innerText = notas.length ? `${notas.length} selecionada(s) • ${moeda(total)}` : 'Nenhuma selecionada';
+}
+window.toggleSelecaoBoletoFinanceiro = function(id, marcado) {
+    const f = (J.financeiro || []).find(x => x.id === id);
+    if (!f || !financeiroPodeSelecionarTabelaFin(f)) return;
+    if (marcado) window.financeiroAgruparSelecionados.add(id);
+    else window.financeiroAgruparSelecionados.delete(id);
+    financeiroAtualizarResumoSelecaoTabelaFin();
+};
+window.selecionarTodosFinanceiroBoletoVisiveis = function(marcar) {
+    document.querySelectorAll('.fin-boleto-check[data-agrupavel="1"]').forEach(ch => {
+        ch.checked = !!marcar;
+        const id = ch.value;
+        if (marcar) window.financeiroAgruparSelecionados.add(id);
+        else window.financeiroAgruparSelecionados.delete(id);
+    });
+    financeiroAtualizarResumoSelecaoTabelaFin();
+};
+window.abrirAgruparBoletoSelecionados = function() {
+    const selecionadas = financeiroNotasSelecionadasTabelaFin();
+    abrirModal('modalAgruparBoleto');
+    window.prepAgruparBoleto && window.prepAgruparBoleto(selecionadas.map(f => f.id));
+};
+
 window.renderFinanceiro = function() {
     const buscaTipo = $v('filtroFinTipo');
     const buscaStatus = $v('filtroFinStatus');
@@ -162,6 +204,7 @@ window.renderFinanceiro = function() {
             <td style="font-family:var(--fm);font-weight:700;color:${corValor}">${moeda(f.valor)}</td>
             <td><span class="pill ${stCls}">${f.status}</span></td>
             <td>
+                ${financeiroPodeSelecionarTabelaFin(f) ? `<label class="fin-boleto-select" title="Selecionar para agrupar em boleto"><input type="checkbox" class="fin-boleto-check" data-agrupavel="1" value="${f.id}" ${window.financeiroAgruparSelecionados.has(f.id) ? 'checked' : ''} onchange="window.toggleSelecaoBoletoFinanceiro('${f.id}', this.checked)"><span>boleto</span></label>` : `<span class="fin-boleto-select disabled" title="Este lançamento não pode ser agrupado">—</span>`}
                 <button class="btn-ghost" onclick="prepFin('${f.id}');abrirModal('modalFin')" title="Editar">✏</button>
                 <button class="btn-danger" onclick="toggleStatusFin('${f.id}','${f.status}')" title="${f.status === 'Pago' ? 'Marcar como Pendente' : 'Marcar como Pago'}">
                     ${f.status === 'Pago' ? '⌛' : '✓'}
@@ -170,6 +213,7 @@ window.renderFinanceiro = function() {
             </td>
         </tr>`;
     }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Nenhum lançamento encontrado</td></tr>';
+    financeiroAtualizarResumoSelecaoTabelaFin();
 };
 
 window.prepFin = function(id = null) {
@@ -445,7 +489,7 @@ window.salvarNF = async function() {
     audit('ESTOQUE/NF', 'Entrada NF ' + ($v('nfNumero') || 's/n'));
 };
 
-window.prepAgruparBoleto = function() {
+window.prepAgruparBoleto = function(idsPreSelecionados = null) {
     if (typeof window.popularSelects === 'function') window.popularSelects();
     if ($('agrBoletoFornecedor')) {
         $('agrBoletoFornecedor').innerHTML = '<option value="">Todos / selecionar depois</option>' + (J.fornecedores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
@@ -457,6 +501,14 @@ window.prepAgruparBoleto = function() {
     if ($('agrBoletoVenc')) $('agrBoletoVenc').value = dataLocalISOFin();
     if ($('agrBoletoValor')) $('agrBoletoValor').value = '';
     if ($('agrBoletoObs')) $('agrBoletoObs').value = '';
+    if (Array.isArray(idsPreSelecionados) && idsPreSelecionados.length) {
+        window.__agrBoletoPreSelecionados = new Set(idsPreSelecionados);
+        const notas = idsPreSelecionados.map(id => (J.financeiro || []).find(f => f.id === id)).filter(Boolean);
+        const fornecedores = [...new Set(notas.map(financeiroFornecedorIdDoLancamentoFin).filter(Boolean))];
+        if (fornecedores.length === 1 && $('agrBoletoFornecedor')) $('agrBoletoFornecedor').value = fornecedores[0];
+    } else {
+        window.__agrBoletoPreSelecionados = new Set([...window.financeiroAgruparSelecionados || []]);
+    }
     window.renderAgruparBoletoNotas();
 };
 
@@ -486,8 +538,9 @@ window.renderAgruparBoletoNotas = function() {
     box.innerHTML = notas.map(f => {
         const fornecedorId = financeiroFornecedorIdDoLancamentoFin(f);
         const fornecedorNome = financeiroFornecedorNomeFin(fornecedorId) || 'Fornecedor não vinculado';
+        const checked = window.__agrBoletoPreSelecionados && window.__agrBoletoPreSelecionados.has(f.id) ? 'checked' : '';
         return `<label class="agr-boleto-item">
-            <input type="checkbox" class="agr-boleto-check" value="${f.id}" onchange="window.atualizarResumoAgruparBoleto()">
+            <input type="checkbox" class="agr-boleto-check" value="${f.id}" ${checked} onchange="window.atualizarResumoAgruparBoleto()">
             <div class="agr-boleto-info">
                 <div class="agr-boleto-desc">${f.desc || 'Lançamento sem descrição'}</div>
                 <div class="agr-boleto-meta">Venc.: ${dtBr(f.venc)} • ${fornecedorNome} • Pgto: ${f.pgto || '-'}${f.nfNumero ? ` • NF ${f.nfNumero}` : ''}</div>
@@ -585,6 +638,8 @@ window.salvarBoletoAgrupado = async function() {
         });
     });
     await batch.commit();
+    notas.forEach(f => window.financeiroAgruparSelecionados && window.financeiroAgruparSelecionados.delete(f.id));
+    window.__agrBoletoPreSelecionados = new Set();
     if (typeof window.thiaAudit === 'function') {
         await window.thiaAudit('agrupou_nf_em_boleto', 'financeiro', refBoleto.id, null, { fornecedorId, boletoNumero, valor: valorBoleto, notas: notasResumo }, '');
     } else if (typeof audit === 'function') {

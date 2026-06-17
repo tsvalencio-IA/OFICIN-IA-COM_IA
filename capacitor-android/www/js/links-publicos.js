@@ -1,30 +1,30 @@
 /*
  * Configuracao central dos links publicos do SaaS.
  * Base publica oficial no GitHub Pages:
- * https://tsvalencio-ia.github.io/OFICIN-IA/
+ * https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/
  */
 (function () {
   'use strict';
 
-  const PUBLIC_BASE_URL = 'https://tsvalencio-ia.github.io/OFICIN-IA/';
+  const PUBLIC_BASE_URL = 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/';
 
   window.THIA_PUBLIC_LINKS = Object.assign({
     baseUrl: PUBLIC_BASE_URL,
-    cliente: 'https://tsvalencio-ia.github.io/OFICIN-IA/cliente.html',
-    clienteOficial: 'https://tsvalencio-ia.github.io/OFICIN-IA/clienteOficial.html',
-    cotacaoFornecedor: 'https://tsvalencio-ia.github.io/OFICIN-IA/cotacao.html',
-    cotacaoFornecedorCurta: 'https://tsvalencio-ia.github.io/OFICIN-IA/c.html',
+    cliente: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/cliente.html',
+    clienteOficial: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/clienteOficial.html',
+    cotacaoFornecedor: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/cotacao.html',
+    cotacaoFornecedorCurta: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/c.html',
     valorIA: 'https://tsvalencio-ia.github.io/Prec_IA/',
     valorIAFornecedor: 'https://tsvalencio-ia.github.io/Prec_IA/fornecedor.html',
-    jarvis: 'https://tsvalencio-ia.github.io/OFICIN-IA/jarvis.html',
-    equipe: 'https://tsvalencio-ia.github.io/OFICIN-IA/equipe.html',
-    superadmin: 'https://tsvalencio-ia.github.io/OFICIN-IA/superadmin.html',
-    login: 'https://tsvalencio-ia.github.io/OFICIN-IA/index.html',
-    selecionarPerfil: 'https://tsvalencio-ia.github.io/OFICIN-IA/selecionar-perfil.html',
+    jarvis: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/jarvis.html',
+    equipe: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/equipe.html',
+    superadmin: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/superadmin.html',
+    login: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/index.html',
+    selecionarPerfil: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/selecionar-perfil.html',
     usarLinkCurtoCotacao: true,
     incluirFirebaseConfigNoLink: false,
-    qrCliente: 'https://tsvalencio-ia.github.io/OFICIN-IA/cliente.html',
-    apkShareBase: 'https://tsvalencio-ia.github.io/OFICIN-IA/',
+    qrCliente: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/cliente.html',
+    apkShareBase: 'https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/',
     apkUrl: 'https://github.com/tsvalencio-ia/OFICIN-IA/releases/latest'
   }, window.THIA_PUBLIC_LINKS || {});
 
