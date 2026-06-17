@@ -533,6 +533,19 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .os-toggle-bloco:hover{background:rgba(0,212,255,.12);}
 .os-collapsed-body{display:none!important;}
 
+
+/* Financeiro — agrupamento profissional de NF em boleto, sem alterar origem das notas */
+.agr-boleto-toolbar{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;margin-bottom:12px;align-items:end;}
+.agr-boleto-lista{max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:12px;background:rgba(2,6,23,.22);padding:8px;}
+.agr-boleto-item{display:grid;grid-template-columns:28px 1fr 120px;gap:10px;align-items:center;padding:10px;border:1px solid rgba(148,163,184,.16);border-radius:10px;background:rgba(15,23,42,.58);margin-bottom:8px;cursor:pointer;}
+.agr-boleto-item:hover{border-color:rgba(34,211,238,.45);background:rgba(14,165,233,.08);}
+.agr-boleto-info{min-width:0;}
+.agr-boleto-desc{font-weight:700;color:var(--text);font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.agr-boleto-meta{font-family:var(--fm);font-size:.65rem;color:var(--muted);margin-top:3px;}
+.agr-boleto-valor{font-family:var(--fm);font-weight:800;text-align:right;color:var(--danger);}
+.agr-boleto-resumo{padding:9px 10px;border:1px solid rgba(250,204,21,.28);background:rgba(250,204,21,.07);border-radius:10px;color:var(--warn);font-family:var(--fm);font-size:.75rem;margin:10px 0;}
+@media(max-width:780px){.agr-boleto-toolbar{grid-template-columns:1fr}.agr-boleto-item{grid-template-columns:24px 1fr}.agr-boleto-valor{grid-column:2;text-align:left}}
+
 </style>
 </head>
 <body>
@@ -895,8 +908,9 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           <div class="j-card-title">FLUXO DE CAIXA E TÍTULOS</div>
           <div style="display:flex;gap:8px;align-items:center;">
             <select class="j-select" style="width:120px" id="filtroFinTipo" onchange="window.renderFinanceiro()"><option value="">Todos</option><option value="Entrada">Receitas</option><option value="Saída">Despesas</option></select>
-            <select class="j-select" style="width:170px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos ativos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option><option value="Cancelado">Cancelados / Reemitidos</option></select>
+            <select class="j-select" style="width:190px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos ativos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option><option value="Agrupado">Origens agrupadas</option><option value="Cancelado">Cancelados / Reemitidos</option></select>
             <input type="month" class="j-input" style="width:150px" id="filtroFinMes" onchange="window.renderFinanceiro()">
+            <button class="btn-warn" onclick="abrirModal('modalAgruparBoleto');window.prepAgruparBoleto && window.prepAgruparBoleto()">📎 AGRUPAR NF EM BOLETO</button>
             <button class="btn-primary" onclick="abrirModal('modalFin');window.prepFin()">+ LANÇAMENTO</button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-// Cache rev: 20260616-v13-peca-busca-os
+// Cache rev: 20260616-v16-fin-boleto-agrupado
 /**
  * thIAguinho ERP — Service Worker
  *
@@ -13,7 +13,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260616-v13-peca-busca-os';
+const CACHE_VERSION = 'oficinia-20260616-v16-fin-boleto-agrupado';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
