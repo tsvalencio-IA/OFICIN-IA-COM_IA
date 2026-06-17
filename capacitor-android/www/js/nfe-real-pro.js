@@ -1300,6 +1300,25 @@
       origemNFVinculada: true
     });
   }
+
+  function keyPecaOrcamentoNF(p){
+    return normalizeTextNF(p?.origemNFItemKey || [p?.nfId || p?.nf || '', p?.codigo || p?.codigoComercial || p?.codigoFornecedor || '', p?.desc || p?.descricao || '', p?.qtd || ''].join('|'));
+  }
+  function pecasOcultasOSNF(os){
+    const out = [];
+    [os?.pecasReaisOcultasNaOS, os?.pecasNFRemovidasDaOS, os?.pecasOcultasNaOS, os?.pecasOSOcultas].forEach(lista => {
+      if (Array.isArray(lista)) lista.forEach(v => {
+        const k = normalizeTextNF(typeof v === 'string' ? v : (v?.key || v?.chave || v?.origemNFItemKey || v?.nfItemKey || ''));
+        if (k && !out.includes(k)) out.push(k);
+      });
+    });
+    return out;
+  }
+  function pecaOrcamentoOcultaOSNF(os, p){
+    const k = keyPecaOrcamentoNF(p);
+    return !!(k && pecasOcultasOSNF(os).includes(k));
+  }
+
   function mergePecasOrcamentoNF(atuais, novas){
     const out = Array.isArray(atuais) ? atuais.slice() : [];
     const keyOf = p => p?.origemNFItemKey || [p?.nfId || p?.nf || '', p?.codigo || '', p?.desc || p?.descricao || '', p?.qtd || ''].join('|');
@@ -1328,6 +1347,8 @@
     (Array.isArray(pecas) ? pecas : []).forEach(real => {
       const visivel = pecaOrcamentoFromNF(real);
       if (!visivel) return;
+      const osAtual = (W.J?.os || []).find(o => String(o.id) === String(osId || '')) || {};
+      if (pecaOrcamentoOcultaOSNF(osAtual, visivel)) return;
       const key = visivel.origemNFItemKey || '';
       if (key && chavesTela.has(key)) return;
       W.renderPecaOSRow(visivel);
@@ -1379,7 +1400,7 @@
       };
       osUpdate.pecasReais = mergePecasReaisNF(entry.os.pecasReais, pecas);
       if (!osClienteOficialNF(entry.os)) {
-        const pecasOrcamento = pecas.map(pecaOrcamentoFromNF).filter(Boolean);
+        const pecasOrcamento = pecas.map(pecaOrcamentoFromNF).filter(Boolean).filter(p => !pecaOrcamentoOcultaOSNF(entry.os, p));
         if (pecasOrcamento.length) osUpdate.pecas = mergePecasOrcamentoNF(entry.os.pecas, pecasOrcamento);
       }
       osUpdate.timeline = (Array.isArray(entry.os.timeline) ? entry.os.timeline.slice() : []).concat(evento);

@@ -1,4 +1,4 @@
-// Cache rev: 20260617-v16-fin-boleto-parcelas
+// Cache rev: 20260617-v16-os-pecas-ocultas
 /**
  * thIAguinho ERP — Service Worker
  *
@@ -13,7 +13,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'oficinia-20260617-v16-fin-boleto-parcelas';
+const CACHE_VERSION = 'oficinia-20260617-v16-os-pecas-ocultas';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

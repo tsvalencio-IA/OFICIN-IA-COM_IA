@@ -1069,7 +1069,7 @@ function montarLinkPortalClienteOS(os, cliente, veiculo) {
     placa: os?.placa || veiculo?.placa || '',
     login: cliente?.login || os?.placa || veiculo?.placa || ''
   });
-  return `https://tsvalencio-ia.github.io/OFICIN-IA-COM_IA/${page}?${params.toString()}`;
+  return `https://tsvalencio-ia.github.io/OFICIN-IA/${page}?${params.toString()}`;
 }
 
 const KANBAN_STATUSES = ['Triagem', 'Orcamento', 'Orcamento_Enviado', 'Aprovado', 'Andamento', 'Pronto', 'Entregue'];
@@ -2306,6 +2306,52 @@ function osChavePecaAtendimentoOS(p) {
   return osTextoNormalizadoCliente(principais[0] || principais.join('|'));
 }
 
+
+function osArrayPecasOcultasNaOS(o) {
+  const origem = o || {};
+  const listas = [
+    origem.pecasReaisOcultasNaOS,
+    origem.pecasNFRemovidasDaOS,
+    origem.pecasOcultasNaOS,
+    origem.pecasOSOcultas
+  ];
+  const out = [];
+  listas.forEach(lista => {
+    if (Array.isArray(lista)) lista.forEach(v => {
+      const k = osTextoNormalizadoCliente(typeof v === 'string' ? v : (v?.key || v?.chave || v?.origemNFItemKey || v?.nfItemKey || ''));
+      if (k && !out.includes(k)) out.push(k);
+    });
+  });
+  return out;
+}
+
+function osPecaNFKeyOcultaNaOS(p, o) {
+  const key = osTextoNormalizadoCliente(osChavePecaAtendimentoOS(p));
+  if (!key) return false;
+  return osArrayPecasOcultasNaOS(o).includes(key);
+}
+
+function osAtualizarOcultasPecasNFRemovidasOS(oldOS, pecasVisiveisAtuais) {
+  const antigo = oldOS || {};
+  const visiveisAtuais = Array.isArray(pecasVisiveisAtuais) ? pecasVisiveisAtuais : [];
+  const ocultas = new Set(osArrayPecasOcultasNaOS(antigo));
+  const antigasVisiveis = Array.isArray(antigo.pecas) ? antigo.pecas : [];
+  antigasVisiveis.forEach(p => {
+    const origemNF = p && (p.origem === 'nf_entrada_os' || p.origem === 'nf_entrada' || p.origemNFVinculada === true || p.nfId || p.origemNFItemKey);
+    if (!origemNF) return;
+    const key = osTextoNormalizadoCliente(osChavePecaAtendimentoOS(p));
+    if (!key) return;
+    if (!osPecaRealTemCorrespondenteVisivelOS(p, visiveisAtuais)) ocultas.add(key);
+  });
+  visiveisAtuais.forEach(p => {
+    const origemNF = p && (p.origem === 'nf_entrada_os' || p.origem === 'nf_entrada' || p.origemNFVinculada === true || p.nfId || p.origemNFItemKey);
+    if (!origemNF) return;
+    const key = osTextoNormalizadoCliente(osChavePecaAtendimentoOS(p));
+    if (key) ocultas.delete(key);
+  });
+  return Array.from(ocultas).filter(Boolean);
+}
+
 function osPecaRealTemCorrespondenteVisivelOS(real, visiveis) {
   const cr = osChavePecaAtendimentoOS(real);
   const codigos = [real?.codigo, real?.codigoComercial, real?.codigoFornecedor, real?.oem].filter(Boolean).map(osTextoNormalizadoCliente);
@@ -2385,6 +2431,7 @@ function osReconciliarPecasReaisParaClienteComumOS(os, pecasAtuais, pecasReaisAt
   reais.forEach(real => {
     const origemNF = real && (real.origem === 'nf_entrada' || real.statusAplicacao === 'comprada_vinculada_nf' || real.nfId || real.origemNFItemKey);
     if (!origemNF) return;
+    if (osPecaNFKeyOcultaNaOS(real, o)) return;
     if (osPecaRealTemCorrespondenteVisivelOS(real, visiveis)) return;
     const nova = osPecaVisivelFromRealOS(real);
     if (nova) visiveis.push(nova);
@@ -3081,6 +3128,9 @@ window.salvarOS = async function() {
   // Antes só gravava quando length > 0, por isso exclusão visual voltava ao reabrir a OS.
   payload.pecasLegacy = itens;
   payload.servicos = servicos;
+  const _pecasReaisOcultasNaOS = osAtualizarOcultasPecasNFRemovidasOS(_oldOSPreservar || {}, pecas);
+  payload.pecasReaisOcultasNaOS = _pecasReaisOcultasNaOS;
+  payload.pecasNFRemovidasDaOS = _pecasReaisOcultasNaOS;
   payload.pecas = osReconciliarPecasReaisParaClienteComumOS(Object.assign({}, _oldOSPreservar || {}, payload), pecas, payload.pecasReais || _pecasReais || []);
   payload.maoObra = totalMaoObra;
 
