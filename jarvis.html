@@ -544,7 +544,11 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .agr-boleto-meta{font-family:var(--fm);font-size:.65rem;color:var(--muted);margin-top:3px;}
 .agr-boleto-valor{font-family:var(--fm);font-weight:800;text-align:right;color:var(--danger);}
 .agr-boleto-resumo{padding:9px 10px;border:1px solid rgba(250,204,21,.28);background:rgba(250,204,21,.07);border-radius:10px;color:var(--warn);font-family:var(--fm);font-size:.75rem;margin:10px 0;}
-@media(max-width:780px){.agr-boleto-toolbar{grid-template-columns:1fr}.agr-boleto-item{grid-template-columns:24px 1fr}.agr-boleto-valor{grid-column:2;text-align:left}}
+.agr-boleto-parcelas{margin-top:12px;border:1px solid rgba(34,211,238,.20);background:rgba(14,165,233,.045);border-radius:12px;padding:10px;display:none;}
+.agr-boleto-parcela-row{display:grid;grid-template-columns:56px 150px 140px 1fr 1.2fr;gap:8px;align-items:center;margin-bottom:8px;}
+.agr-boleto-parcela-num{font-family:var(--fm);font-size:.72rem;font-weight:800;color:var(--accent);text-align:center;border:1px solid rgba(34,211,238,.25);border-radius:8px;padding:9px 5px;background:rgba(34,211,238,.06);}
+.agr-boleto-parcelas-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;color:var(--muted);font-family:var(--fm);font-size:.68rem;}
+@media(max-width:780px){.agr-boleto-toolbar{grid-template-columns:1fr}.agr-boleto-item{grid-template-columns:24px 1fr}.agr-boleto-valor{grid-column:2;text-align:left}.agr-boleto-parcela-row{grid-template-columns:1fr}.agr-boleto-parcela-num{text-align:left}}
 
 .fin-boleto-select{display:inline-flex;align-items:center;gap:5px;margin-right:6px;border:1px solid rgba(250,204,21,.28);background:rgba(250,204,21,.06);color:var(--warn);border-radius:4px;padding:4px 6px;font-family:var(--fm);font-size:.55rem;text-transform:uppercase;letter-spacing:.8px;white-space:nowrap;cursor:pointer;}
 .fin-boleto-select input{accent-color:#facc15;cursor:pointer;}
@@ -1814,10 +1818,19 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     </div>
     <div class="agr-boleto-lista" id="agrBoletoListaNotas"></div>
     <div class="form-row cols-4" style="margin-top:12px;">
-      <div class="form-group"><label class="j-label">Número do boleto</label><input class="j-input" id="agrBoletoNumero" placeholder="Ex: 123456"></div>
+      <div class="form-group"><label class="j-label">Número do boleto base</label><input class="j-input" id="agrBoletoNumero" placeholder="Ex: 123456"></div>
       <div class="form-group"><label class="j-label">Banco</label><input class="j-input" id="agrBoletoBanco" placeholder="Ex: Santander, Itaú..."></div>
-      <div class="form-group"><label class="j-label">Valor do boleto</label><input class="j-input" id="agrBoletoValor" inputmode="decimal" placeholder="Automático pela soma"></div>
-      <div class="form-group"><label class="j-label">Linha digitável</label><input class="j-input" id="agrBoletoLinha" placeholder="Opcional"></div>
+      <div class="form-group"><label class="j-label">Valor total do agrupamento</label><input class="j-input" id="agrBoletoValor" inputmode="decimal" placeholder="Automático pela soma" oninput="window.agrBoletoCalcularParcelas && window.agrBoletoCalcularParcelas(true)"></div>
+      <div class="form-group"><label class="j-label">Linha digitável base</label><input class="j-input" id="agrBoletoLinha" placeholder="Opcional"></div>
+    </div>
+    <div class="form-row cols-3" style="margin-top:10px;align-items:end;">
+      <div class="form-group"><label class="j-label">Quantidade de boletos / parcelas</label><input type="number" min="1" max="60" class="j-input" id="agrBoletoQtdParcelas" value="1" oninput="window.agrBoletoCalcularParcelas && window.agrBoletoCalcularParcelas(true)"></div>
+      <div class="form-group"><label class="j-label">Vencimento inicial</label><input type="date" class="j-input" id="agrBoletoVencParcelaAux" onchange="if($('agrBoletoVenc')){$('agrBoletoVenc').value=this.value;} window.agrBoletoCalcularParcelas && window.agrBoletoCalcularParcelas(true)"></div>
+      <button type="button" class="btn-outline" onclick="window.agrBoletoCalcularParcelas && window.agrBoletoCalcularParcelas(true)">GERAR / ATUALIZAR PARCELAS</button>
+    </div>
+    <div class="agr-boleto-parcelas" id="agrBoletoParcelasBox">
+      <div class="agr-boleto-parcelas-head"><span>Parcelas/boletos do agrupamento — edite vencimento, valor, número e linha digitável de cada boleto.</span><strong id="agrBoletoParcelasResumo">0 parcela(s)</strong></div>
+      <div id="agrBoletoParcelasLista"></div>
     </div>
     <div class="form-group"><label class="j-label">Observação / auditoria</label><textarea class="j-textarea" id="agrBoletoObs" rows="2" placeholder="Ex: boleto agrupado enviado pelo fornecedor referente às NFs selecionadas"></textarea></div>
   </div>

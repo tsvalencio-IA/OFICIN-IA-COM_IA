@@ -511,8 +511,12 @@ window.prepAgruparBoleto = function(idsPreSelecionados = null) {
     if ($('agrBoletoBanco')) $('agrBoletoBanco').value = '';
     if ($('agrBoletoLinha')) $('agrBoletoLinha').value = '';
     if ($('agrBoletoVenc')) $('agrBoletoVenc').value = dataLocalISOFin();
+    if ($('agrBoletoVencParcelaAux')) $('agrBoletoVencParcelaAux').value = $v('agrBoletoVenc') || dataLocalISOFin();
     if ($('agrBoletoValor')) $('agrBoletoValor').value = '';
     if ($('agrBoletoObs')) $('agrBoletoObs').value = '';
+    if ($('agrBoletoQtdParcelas')) $('agrBoletoQtdParcelas').value = '1';
+    if ($('agrBoletoParcelasLista')) $('agrBoletoParcelasLista').innerHTML = '';
+    if ($('agrBoletoParcelasBox')) $('agrBoletoParcelasBox').style.display = 'none';
     if (Array.isArray(idsPreSelecionados) && idsPreSelecionados.length) {
         window.__agrBoletoPreSelecionados = new Set(idsPreSelecionados);
         const notas = idsPreSelecionados.map(id => (J.financeiro || []).find(f => f.id === id)).filter(Boolean);
@@ -578,6 +582,93 @@ window.atualizarResumoAgruparBoleto = function() {
     const total = notas.reduce((s,f) => s + Number(f.valor || 0), 0);
     if ($('agrBoletoResumo')) $('agrBoletoResumo').innerText = `${notas.length} nota(s) selecionada(s) • total ${moeda(total)}`;
     if ($('agrBoletoValor') && !String($('agrBoletoValor').value || '').trim()) $('agrBoletoValor').placeholder = total.toFixed(2);
+    if (typeof window.agrBoletoCalcularParcelas === 'function') window.agrBoletoCalcularParcelas(false);
+};
+
+
+window.agrBoletoCalcularParcelas = function(forcar = false) {
+    const notas = window.getNotasSelecionadasBoleto ? window.getNotasSelecionadasBoleto() : [];
+    const totalNotas = notas.reduce((s,f) => s + Number(f.valor || 0), 0);
+    const valorInformado = financeiroNumeroBRFin($v('agrBoletoValor'));
+    const total = valorInformado > 0 ? valorInformado : totalNotas;
+    const qtd = Math.max(1, parseInt($v('agrBoletoQtdParcelas') || '1', 10) || 1);
+    const box = $('agrBoletoParcelasBox');
+    const lista = $('agrBoletoParcelasLista');
+    if (!box || !lista) return;
+    box.style.display = qtd > 1 ? 'block' : 'none';
+    if (qtd <= 1) {
+        lista.innerHTML = '';
+        return;
+    }
+    const jaTemLinhas = lista.querySelectorAll('.agr-boleto-parcela-row').length === qtd;
+    if (jaTemLinhas && !forcar) return;
+    const vencBase = $v('agrBoletoVenc') || dataLocalISOFin();
+    const base = new Date((vencBase || dataLocalISOFin()) + 'T12:00:00');
+    const centsTotal = Math.round(total * 100);
+    const centsBase = Math.floor(centsTotal / qtd);
+    let acumulado = 0;
+    const linhas = [];
+    for (let i = 1; i <= qtd; i++) {
+        const d = new Date(base);
+        d.setMonth(base.getMonth() + (i - 1));
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const cents = i === qtd ? (centsTotal - acumulado) : centsBase;
+        acumulado += cents;
+        linhas.push(`
+            <div class="agr-boleto-parcela-row">
+                <div class="agr-boleto-parcela-num">${i}/${qtd}</div>
+                <input type="date" class="j-input agr-boleto-parcela-venc" value="${yyyy}-${mm}-${dd}" onchange="window.agrBoletoAtualizarResumoParcelas && window.agrBoletoAtualizarResumoParcelas()">
+                <input class="j-input agr-boleto-parcela-valor" inputmode="decimal" value="${(cents / 100).toFixed(2)}" oninput="window.agrBoletoAtualizarResumoParcelas && window.agrBoletoAtualizarResumoParcelas()">
+                <input class="j-input agr-boleto-parcela-numero" placeholder="Nº boleto ${i}">
+                <input class="j-input agr-boleto-parcela-linha" placeholder="Linha digitável ${i} (opcional)">
+            </div>
+        `);
+    }
+    lista.innerHTML = linhas.join('');
+    window.agrBoletoAtualizarResumoParcelas();
+};
+
+window.agrBoletoAtualizarResumoParcelas = function() {
+    const resumo = $('agrBoletoParcelasResumo');
+    if (!resumo) return;
+    const parcelas = window.getParcelasBoletoAgrupado ? window.getParcelasBoletoAgrupado(false) : [];
+    const totalParcelas = parcelas.reduce((s,p) => s + Number(p.valor || 0), 0);
+    const notas = window.getNotasSelecionadasBoleto ? window.getNotasSelecionadasBoleto() : [];
+    const totalNotas = notas.reduce((s,f) => s + Number(f.valor || 0), 0);
+    const valorInformado = financeiroNumeroBRFin($v('agrBoletoValor'));
+    const totalEsperado = valorInformado > 0 ? valorInformado : totalNotas;
+    const dif = Math.abs(totalParcelas - totalEsperado);
+    resumo.innerText = `${parcelas.length} parcela(s) • total ${moeda(totalParcelas)}${dif > 0.009 ? ' • diferença ' + moeda(totalParcelas - totalEsperado) : ''}`;
+};
+
+window.getParcelasBoletoAgrupado = function(validar = true) {
+    const qtd = Math.max(1, parseInt($v('agrBoletoQtdParcelas') || '1', 10) || 1);
+    if (qtd <= 1) {
+        return [{
+            parcela: 1,
+            totalParcelas: 1,
+            venc: $v('agrBoletoVenc') || dataLocalISOFin(),
+            valor: financeiroNumeroBRFin($v('agrBoletoValor')),
+            boletoNumero: $v('agrBoletoNumero') || '',
+            linha: $v('agrBoletoLinha') || ''
+        }];
+    }
+    const rows = [...document.querySelectorAll('.agr-boleto-parcela-row')];
+    const parcelas = rows.map((row, idx) => ({
+        parcela: idx + 1,
+        totalParcelas: qtd,
+        venc: row.querySelector('.agr-boleto-parcela-venc')?.value || '',
+        valor: financeiroNumeroBRFin(row.querySelector('.agr-boleto-parcela-valor')?.value || ''),
+        boletoNumero: row.querySelector('.agr-boleto-parcela-numero')?.value || '',
+        linha: row.querySelector('.agr-boleto-parcela-linha')?.value || ''
+    }));
+    if (validar) {
+        if (parcelas.length !== qtd) { window.toast('⚠ Gere/atualize as parcelas do boleto', 'warn'); return null; }
+        if (parcelas.some(p => !p.venc || Number(p.valor || 0) <= 0)) { window.toast('⚠ Confira vencimento e valor de todas as parcelas', 'warn'); return null; }
+    }
+    return parcelas;
 };
 
 window.salvarBoletoAgrupado = async function() {
@@ -587,18 +678,24 @@ window.salvarBoletoAgrupado = async function() {
     const fornecedoresDiferentes = [...new Set(notas.map(financeiroFornecedorIdDoLancamentoFin).filter(Boolean))];
     if (!fornecedorId && fornecedoresDiferentes.length !== 1) { window.toast('⚠ Selecione o fornecedor do boleto agrupado', 'warn'); return; }
     if (fornecedoresDiferentes.length > 1 && !confirm('Existem lançamentos de fornecedores diferentes selecionados. Deseja agrupar mesmo assim?')) return;
-    const venc = $v('agrBoletoVenc') || dataLocalISOFin();
     const totalNotas = notas.reduce((s,f) => s + Number(f.valor || 0), 0);
     const valorInformado = financeiroNumeroBRFin($v('agrBoletoValor'));
     const valorBoleto = valorInformado > 0 ? valorInformado : totalNotas;
     if (valorBoleto <= 0) { window.toast('⚠ Valor do boleto inválido', 'warn'); return; }
+    const qtdParcelas = Math.max(1, parseInt($v('agrBoletoQtdParcelas') || '1', 10) || 1);
+    if (qtdParcelas > 1 && (!document.querySelector('.agr-boleto-parcela-row'))) window.agrBoletoCalcularParcelas(true);
+    let parcelas = window.getParcelasBoletoAgrupado(true);
+    if (!parcelas) return;
+    if (qtdParcelas === 1) parcelas[0].valor = valorBoleto;
+    const totalParcelas = parcelas.reduce((s,p) => s + Number(p.valor || 0), 0);
+    if (Math.abs(totalParcelas - valorBoleto) > 0.009 && !confirm(`A soma das parcelas (${moeda(totalParcelas)}) é diferente do valor do boleto (${moeda(valorBoleto)}). Deseja continuar?`)) return;
     const fornecedorNome = financeiroFornecedorNomeFin(fornecedorId) || 'Fornecedor';
     const boletoNumero = $v('agrBoletoNumero') || '';
     const banco = $v('agrBoletoBanco') || '';
     const linha = $v('agrBoletoLinha') || '';
     const obs = $v('agrBoletoObs') || '';
     const agora = new Date().toISOString();
-    const refBoleto = db.collection('financeiro').doc();
+    const grupoId = db.collection('financeiro').doc().id;
     const notasResumo = notas.map(f => ({
         id: f.id,
         desc: f.desc || '',
@@ -608,41 +705,55 @@ window.salvarBoletoAgrupado = async function() {
         fornecedorId: financeiroFornecedorIdDoLancamentoFin(f) || fornecedorId || '',
         pgto: f.pgto || ''
     }));
-    const notaAuditoria = [
+    const notaAuditoriaBase = [
         `Boleto agrupado gerado a partir de ${notas.length} lançamento(s).`,
         `Total original das notas: ${moeda(totalNotas)}.`,
-        valorInformado > 0 && Math.abs(valorInformado - totalNotas) > 0.009 ? `Valor informado do boleto: ${moeda(valorBoleto)}.` : '',
-        boletoNumero ? `Boleto nº ${boletoNumero}.` : '',
+        valorInformado > 0 && Math.abs(valorInformado - totalNotas) > 0.009 ? `Valor informado do agrupamento: ${moeda(valorBoleto)}.` : '',
+        qtdParcelas > 1 ? `Agrupamento parcelado em ${qtdParcelas} boleto(s).` : 'Agrupamento em boleto único.',
+        boletoNumero ? `Boleto base/nº ${boletoNumero}.` : '',
         banco ? `Banco: ${banco}.` : '',
-        linha ? `Linha digitável/código: ${linha}.` : '',
+        linha ? `Linha digitável/código base: ${linha}.` : '',
         obs ? `Obs: ${obs}.` : ''
     ].filter(Boolean).join('\n');
 
     const batch = db.batch();
-    batch.set(refBoleto, {
-        tenantId: J.tid,
-        tipo: 'Saída',
-        status: 'Pendente',
-        desc: `BOLETO AGRUPADO — ${fornecedorNome} — ${notas.length} NF/conta(s)`,
-        valor: valorBoleto,
-        pgto: 'Boleto',
-        venc,
-        vinculo: fornecedorId ? `F_${fornecedorId}` : '',
-        fornecedorId: fornecedorId || '',
-        boletoAgrupado: true,
-        tipoDocumento: 'boleto_agrupado',
-        boletoNumero,
-        boletoBanco: banco,
-        boletoLinhaDigitavel: linha,
-        notasAgrupadas: notasResumo,
-        nota: notaAuditoria,
-        createdAt: agora,
-        updatedAt: agora
+    const refsBoletos = [];
+    parcelas.forEach((parc) => {
+        const refBoleto = db.collection('financeiro').doc();
+        refsBoletos.push(refBoleto);
+        const numParcela = qtdParcelas > 1 ? `${parc.parcela}/${qtdParcelas}` : '1/1';
+        const numeroParcela = parc.boletoNumero || boletoNumero || '';
+        const linhaParcela = parc.linha || linha || '';
+        batch.set(refBoleto, {
+            tenantId: J.tid,
+            tipo: 'Saída',
+            status: 'Pendente',
+            desc: qtdParcelas > 1 ? `BOLETO AGRUPADO ${numParcela} — ${fornecedorNome} — ${notas.length} NF/conta(s)` : `BOLETO AGRUPADO — ${fornecedorNome} — ${notas.length} NF/conta(s)`,
+            valor: Number(parc.valor || 0),
+            pgto: 'Boleto',
+            venc: parc.venc || dataLocalISOFin(),
+            vinculo: fornecedorId ? `F_${fornecedorId}` : '',
+            fornecedorId: fornecedorId || '',
+            boletoAgrupado: true,
+            tipoDocumento: 'boleto_agrupado',
+            boletoGrupoId: grupoId,
+            boletoParcela: parc.parcela,
+            boletoTotalParcelas: qtdParcelas,
+            boletoNumero: numeroParcela,
+            boletoBanco: banco,
+            boletoLinhaDigitavel: linhaParcela,
+            notasAgrupadas: notasResumo,
+            nota: [notaAuditoriaBase, qtdParcelas > 1 ? `Parcela ${numParcela} no valor de ${moeda(parc.valor)} com vencimento em ${dtBr(parc.venc)}.` : ''].filter(Boolean).join('\n'),
+            createdAt: agora,
+            updatedAt: agora
+        });
     });
     notas.forEach(f => {
         batch.update(db.collection('financeiro').doc(f.id), {
             status: 'Agrupado',
-            agrupadoNoBoletoId: refBoleto.id,
+            agrupadoNoBoletoId: refsBoletos[0]?.id || grupoId,
+            agrupadoNoBoletoIds: refsBoletos.map(r => r.id),
+            boletoGrupoId: grupoId,
             boletoAgrupadoOrigem: true,
             boletoNumero,
             fornecedorId: financeiroFornecedorIdDoLancamentoFin(f) || fornecedorId || '',
@@ -653,11 +764,11 @@ window.salvarBoletoAgrupado = async function() {
     notas.forEach(f => window.financeiroAgruparSelecionados && window.financeiroAgruparSelecionados.delete(f.id));
     window.__agrBoletoPreSelecionados = new Set();
     if (typeof window.thiaAudit === 'function') {
-        await window.thiaAudit('agrupou_nf_em_boleto', 'financeiro', refBoleto.id, null, { fornecedorId, boletoNumero, valor: valorBoleto, notas: notasResumo }, '');
+        await window.thiaAudit('agrupou_nf_em_boleto', 'financeiro', grupoId, null, { fornecedorId, boletoNumero, valor: valorBoleto, qtdParcelas, parcelas, notas: notasResumo }, '');
     } else if (typeof audit === 'function') {
-        audit('FINANCEIRO', `Agrupou ${notas.length} NF/conta(s) no boleto ${boletoNumero || refBoleto.id}`);
+        audit('FINANCEIRO', `Agrupou ${notas.length} NF/conta(s) em ${qtdParcelas} boleto(s) ${boletoNumero || grupoId}`);
     }
-    window.toast('✓ BOLETO AGRUPADO GERADO SEM PERDER RASTREABILIDADE');
+    window.toast(qtdParcelas > 1 ? `✓ ${qtdParcelas} BOLETOS AGRUPADOS GERADOS SEM PERDER RASTREABILIDADE` : '✓ BOLETO AGRUPADO GERADO SEM PERDER RASTREABILIDADE');
     fecharModal('modalAgruparBoleto');
     if (typeof window.renderFinanceiro === 'function') window.renderFinanceiro();
 };
