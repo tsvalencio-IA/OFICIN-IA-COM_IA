@@ -917,6 +917,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
             <select class="j-select" style="width:120px" id="filtroFinTipo" onchange="window.renderFinanceiro()"><option value="">Todos</option><option value="Entrada">Receitas</option><option value="Saída">Despesas</option></select>
             <select class="j-select" style="width:190px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos ativos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option><option value="Agrupado">Origens agrupadas</option><option value="Cancelado">Cancelados / Reemitidos</option></select>
             <input type="month" class="j-input" style="width:150px" id="filtroFinMes" onchange="window.renderFinanceiro()">
+            <input type="search" class="j-input" style="width:260px" id="filtroFinBusca" placeholder="Pesquisar NF, nota, fornecedor..." oninput="window.renderFinanceiro()">
             <button class="btn-warn" onclick="window.abrirAgruparBoletoSelecionados && window.abrirAgruparBoletoSelecionados()">📎 AGRUPAR NF EM BOLETO</button>
             <button class="btn-primary" onclick="abrirModal('modalFin');window.prepFin()">+ LANÇAMENTO</button>
           </div>

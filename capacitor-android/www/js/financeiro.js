@@ -129,6 +129,7 @@ window.renderFinanceiro = function() {
     const buscaTipo = $v('filtroFinTipo');
     const buscaStatus = $v('filtroFinStatus');
     const buscaMes = $v('filtroFinMes');
+    const buscaLivre = financeiroNormalizarTextoFin($v('filtroFinBusca') || '');
 
     let base = [...J.financeiro];
     if (buscaTipo) base = base.filter(f => f.tipo === buscaTipo);
@@ -141,6 +142,17 @@ window.renderFinanceiro = function() {
         if (buscaStatus) base = base.filter(f => f.status === buscaStatus);
     }
     if (buscaMes) base = base.filter(f => (f.venc || '').startsWith(buscaMes));
+    if (buscaLivre) {
+        base = base.filter(f => {
+            const fornecedorId = financeiroFornecedorIdDoLancamentoFin(f);
+            const fornecedorNome = financeiroFornecedorNomeFin(fornecedorId);
+            const textoBusca = financeiroNormalizarTextoFin([
+                f.desc, f.nota, f.nfNumero, f.numeroNota, f.chaveNFe, f.chave, f.fornecedor,
+                fornecedorId, fornecedorNome, f.pgto, f.venc, f.status, f.valor
+            ].join(' '));
+            return textoBusca.includes(buscaLivre);
+        });
+    }
 
     base.sort((a, b) => (b.venc || '') > (a.venc || '') ? 1 : -1);
 
