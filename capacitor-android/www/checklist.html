@@ -32,7 +32,7 @@
   <div class="top">
     <div class="hero">
       <div class="hero-row">
-        <div><h1>Checklist Inteligente OFICIN-IA</h1><div class="sub">Padrão concessionária • edição por gestão • exclusão autorizada • app próprio • A4 manual</div></div>
+        <div><h1>Checklist Inteligente OFICIN-IA</h1><div class="sub">Padrão concessionária • edição por gestão • exclusão autorizada • app próprio • login interno • A4 manual</div></div>
         <button class="btn secondary small" id="btnTheme" type="button">🌗 Tema</button>
       </div>
       <div class="session"><span class="pill" id="sessOficina">Oficina</span><span class="pill" id="sessMecanico">Responsável</span><span class="pill" id="sessStatus">Sessão</span></div>
@@ -40,13 +40,28 @@
     <div class="steps"><span class="step on"></span><span class="step"></span><span class="step"></span><span class="step"></span></div>
   </div>
 
-  <section class="card hidden" id="screenAccess">
-    <div class="title"><h2>🔐 Acesso necessário</h2></div>
-    <div class="notice bad">Entre primeiro pelo <b>Jarvis</b>, <b>equipe.html</b> ou painel autorizado do SaaS. O checklist aceita mecânico, gerente, gestor, dono e admin, salvando quem fez e o perfil responsável.</div>
-    <div style="margin-top:10px"><button class="btn full" onclick="location.href='index.html'">Ir para login do SaaS</button></div>
+  <section class="card" id="screenAccess">
+    <div class="title"><h2>🔐 Login do Checklist</h2></div>
+    <div class="notice bad">Acesso bloqueado sem login. Entre com o mesmo usuário e senha do SaaS/Jarvis/equipe. Clientes não acessam checklists.</div>
+    <div class="row2" style="margin-top:10px">
+      <div><label>Usuário / e-mail</label><input id="loginUsr" class="inp" autocomplete="username" placeholder="Usuário, login ou e-mail"></div>
+      <div><label>Senha</label><input id="loginPwd" class="inp" type="password" autocomplete="current-password" placeholder="Senha"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;color:var(--text);font-size:.86rem;font-weight:850">
+      <input id="loginRemember" type="checkbox" checked style="width:20px;height:20px;flex:0 0 auto"> Manter este checklist logado neste aparelho
+    </label>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;color:var(--text);font-size:.86rem;font-weight:850">
+      <input id="loginLgpd" type="checkbox" checked style="width:20px;height:20px;flex:0 0 auto"> Aceito usar dados internos somente para execução do checklist técnico
+    </label>
+    <div id="loginErr" class="notice bad hidden" style="margin-top:10px"></div>
+    <div class="grid-actions" style="margin-top:10px">
+      <button class="btn full" id="btnLoginChecklist" type="button">Entrar no Checklist</button>
+      <button class="btn secondary full" id="btnAbrirSaasLogin" type="button">Abrir login do SaaS em outra aba</button>
+    </div>
+    <div class="notice" style="margin-top:10px">APK separado: este login é interno do checklist. Ele não deve abrir checklists salvos sem sessão autorizada.</div>
   </section>
 
-  <section class="card" id="screenStart">
+  <section class="card hidden" id="screenStart">
     <div class="title"><h2>1) Identificação</h2><span class="pill" id="draftInfo">Rascunho automático</span></div>
     <div class="row2">
       <div><label>Placa</label><input id="placa" class="inp" maxlength="8" placeholder="ABC1D23" autocomplete="off"></div>
