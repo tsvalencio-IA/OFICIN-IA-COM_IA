@@ -2,7 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const $$=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
-const state={db:null,model:null,placa:'',os:[],histItens:[],selected:new Map(),sintomas:new Set(),activeSecId:'',completedSecoes:new Set(),photos:[],audioBlob:null,audioUrl:'',theme:localStorage.getItem('chk_theme')||'light',user:null,screen:'screenStart',historicoVisivel:false,allowedRoles:['mecanico','mecânico','tecnico','técnico','gerente','gestor','admin','adminmaster','admin master','master','superadmin','admin oficina','adminoficina','admin_master','admin-master']};
+const state={db:null,model:null,placa:'',os:[],histItens:[],selected:new Map(),sintomas:new Set(),activeSecId:'',completedSecoes:new Set(),photos:[],audioBlob:null,audioUrl:'',theme:localStorage.getItem('chk_theme')||'light',user:null,screen:'screenStart',historicoVisivel:false,allowedRoles:['mecanico','mecânico','tecnico','técnico','gerente','gestor','dono','proprietario','proprietário','administrativo','admin','adminmaster','admin master','master','superadmin','admin oficina','adminoficina','admin_master','admin-master']};
 const NORM=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
 const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const toast=msg=>{const t=$('toast'); if(!t)return; t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),3000)};
@@ -15,8 +15,32 @@ function statusLabel(s){return ({ok:'OK',atencao:'ATENÇÃO',trocar:'TROCAR',na:
 function statusClass(s){return ({ok:'ok',atencao:'warn',trocar:'bad',na:'na'})[s]||''}
 function applyTheme(){document.documentElement.dataset.theme=state.theme; localStorage.setItem('chk_theme',state.theme)}
 function getStore(k){return sessionStorage.getItem(k)||localStorage.getItem(k)||'';}
+function hydrateSessionFromSavedLogin(){
+  try{
+    const saved=JSON.parse(localStorage.getItem('j_saved_login')||'null');
+    const session=saved?.session||null;
+    if(session && session.j_tid && session.j_role && session.j_nome){
+      Object.entries(session).forEach(([k,v])=>{
+        if(v!==undefined && v!==null && !sessionStorage.getItem(k)) sessionStorage.setItem(k,String(v));
+      });
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
 function readSession(){
-  const u={tid:getStore('j_tid'),role:getStore('j_role'),nome:getStore('j_nome'),tnome:getStore('j_tnome'),fid:getStore('j_fid'),cloudName:getStore('j_cloud_name')||'dmuvm1o6m',cloudPreset:getStore('j_cloud_preset')||'evolution'};
+  if(!getStore('j_tid') || !getStore('j_role') || !getStore('j_nome')) hydrateSessionFromSavedLogin();
+  const u={
+    tid:getStore('j_tid'),
+    role:getStore('j_role')||getStore('j_cargo')||getStore('j_role_master'),
+    cargo:getStore('j_cargo'),
+    actorType:getStore('j_actor_type')||'jarvis',
+    nome:getStore('j_nome'),
+    tnome:getStore('j_tnome'),
+    fid:getStore('j_fid')||getStore('j_admin_email')||'',
+    cloudName:getStore('j_cloud_name')||'dmuvm1o6m',
+    cloudPreset:getStore('j_cloud_preset')||'evolution'
+  };
   try{u.oficina=JSON.parse(sessionStorage.getItem('j_oficina')||localStorage.getItem('j_oficina')||'null')||null}catch(e){u.oficina=null}
   state.user=u; return u;
 }
@@ -68,7 +92,8 @@ async function loadModel(){
  catch(e){ console.error(e); state.model={sintomas:[],secoes:[],sugestoes:{}}; toast('Modelo não carregado.'); }
 }
 function firebaseConfig(){
- try{ const cfg=JSON.parse(sessionStorage.getItem('j_firebase_config')||'null'); if(cfg&&cfg.apiKey&&cfg.projectId) return cfg; }catch(e){}
+ try{ const cfg=JSON.parse(sessionStorage.getItem('j_firebase_config')||localStorage.getItem('j_firebase_config')||'null'); if(cfg&&cfg.apiKey&&cfg.projectId) return cfg; }catch(e){}
+ try{ const saved=JSON.parse(localStorage.getItem('j_saved_login')||'null'); const cfg=JSON.parse(saved?.session?.j_firebase_config||'null'); if(cfg&&cfg.apiKey&&cfg.projectId) return cfg; }catch(e){}
  return window.JARVIS_FB_CONFIG || window.APP_CONFIG?.firebaseConfig || window.firebaseConfig || window.cfg?.firebaseConfig || window.__firebaseConfig || null;
 }
 function initFirebase(){
