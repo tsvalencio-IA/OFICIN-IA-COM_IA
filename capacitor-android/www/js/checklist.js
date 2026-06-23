@@ -2,7 +2,8 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const $$=(sel,root=document)=>Array.from(root.querySelectorAll(sel));
-const state={db:null,model:null,placa:'',os:[],histItens:[],selected:new Map(),sintomas:new Set(),activeSecId:'',completedSecoes:new Set(),photos:[],audioBlob:null,audioUrl:'',theme:localStorage.getItem('chk_theme')||'light',user:null,screen:'screenStart',historicoVisivel:false,allowedRoles:['mecanico','mecânico','tecnico','técnico','gerente','gestor','dono','proprietario','proprietário','administrativo','admin','adminmaster','admin master','master','superadmin','admin oficina','adminoficina','admin_master','admin-master']};
+const state={db:null,model:null,placa:'',os:[],histItens:[],selected:new Map(),sintomas:new Set(),activeSecId:'',completedSecoes:new Set(),photos:[],audioBlob:null,audioUrl:'',entrega:new Map(),entregaStatus:'em_conferencia',entregaObsFinal:'',theme:localStorage.getItem('chk_theme')||'light',user:null,screen:'screenStart',historicoVisivel:false,allowedRoles:['mecanico','mecânico','tecnico','técnico','gerente','gestor','dono','proprietario','proprietário','administrativo','admin','adminmaster','admin master','master','superadmin','admin oficina','adminoficina','admin_master','admin-master']};
+let deferredInstallPrompt=null;
 const NORM=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
 const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const toast=msg=>{const t=$('toast'); if(!t)return; t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),3000)};
@@ -55,17 +56,48 @@ function applySessionUI(){
   if($('mecanico')) $('mecanico').value=u.nome||'';
   if($('consultaMecanico')) $('consultaMecanico').value=u.nome||'';
 }
-function go(screen){state.screen=screen;['screenAccess','screenStart','screenConsulta','screenCheck','screenMidia','screenResumo'].forEach(x=>$(x)?.classList.add('hidden')); $(screen)?.classList.remove('hidden'); const idx=['screenStart','screenCheck','screenMidia','screenResumo'].indexOf(screen); $$('.step').forEach((s,i)=>s.classList.toggle('on', idx>=i || (screen==='screenConsulta'&&i===0))); updateNav(); window.scrollTo({top:0,behavior:'smooth'});}
+function go(screen){state.screen=screen;['screenAccess','screenStart','screenConsulta','screenCheck','screenMidia','screenResumo','screenEntrega'].forEach(x=>$(x)?.classList.add('hidden')); $(screen)?.classList.remove('hidden'); const idx=['screenStart','screenCheck','screenMidia','screenResumo','screenEntrega'].indexOf(screen); $$('.step').forEach((s,i)=>s.classList.toggle('on', idx>=i || (screen==='screenConsulta'&&i===0))); updateNav(); window.scrollTo({top:0,behavior:'smooth'});}
 function updateNav(){
  const order=['screenStart','screenCheck','screenMidia','screenResumo']; const i=order.indexOf(state.screen);
  if($('btnVoltar')) $('btnVoltar').classList.toggle('hidden',state.screen==='screenAccess');
  if($('btnAvancar')) $('btnAvancar').textContent=state.screen==='screenResumo'?'Finalizado ✅':'Avançar ➜';
 }
-function nextScreen(){ if(state.screen==='screenStart') go('screenCheck'); else if(state.screen==='screenCheck'){renderMidia();go('screenMidia')} else if(state.screen==='screenMidia'){renderResumo();go('screenResumo')} else if(state.screen==='screenResumo') toast('Checklist finalizado. Baixe PDF/XLSX ou envie para a O.S.'); else go('screenStart'); }
-function prevScreen(){ if(state.screen==='screenResumo') go('screenMidia'); else if(state.screen==='screenMidia') go('screenCheck'); else if(state.screen==='screenCheck'||state.screen==='screenConsulta') go('screenStart'); else go('screenStart'); }
+function nextScreen(){ if(state.screen==='screenStart') go('screenCheck'); else if(state.screen==='screenCheck'){renderMidia();go('screenMidia')} else if(state.screen==='screenMidia'){renderResumo();go('screenResumo')} else if(state.screen==='screenResumo'){ abrirChecklistEntrega(); } else if(state.screen==='screenEntrega'){ finalizarFluxoRapido(); } else go('screenStart'); }
+function finalizarFluxoRapido(){ renderResumo(); toast('Checklist finalizado. Use Salvar, PDF, Planilha ou Novo checklist.'); const painel=$('acoesPosFinalizacao'); if(painel) painel.scrollIntoView({behavior:'smooth',block:'center'}); }
+function prevScreen(){ if(state.screen==='screenEntrega') go('screenResumo'); else if(state.screen==='screenResumo') go('screenMidia'); else if(state.screen==='screenMidia') go('screenCheck'); else if(state.screen==='screenCheck'||state.screen==='screenConsulta') go('screenStart'); else go('screenStart'); }
+
+function destinoSaaSPorPerfil(){
+  const u=state.user||readSession();
+  const r=roleNorm(u.role||u.cargo||'');
+  if(r.includes('mecanico')||r.includes('mecan')||r.includes('tecnico')||r.includes('tec')) return './equipe.html';
+  if(r.includes('gerente')||r.includes('gestor')||r.includes('admin')||r.includes('master')||r.includes('dono')||r.includes('proprietario')||r.includes('super')) return './jarvis.html';
+  return './index.html';
+}
+function abrirSistemaSaaS(){
+  const url=destinoSaaSPorPerfil();
+  try{ window.open(url,'_blank','noopener'); }
+  catch(e){ location.href=url; }
+}
+async function instalarChecklistApp(){
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    try{ await deferredInstallPrompt.userChoice; }catch(e){}
+    deferredInstallPrompt=null;
+    toast('Instalação acionada. Confira a tela do celular.');
+    return;
+  }
+  toast('No celular: menu do navegador ⋮ > Adicionar à tela inicial.');
+}
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredInstallPrompt=e; const b=$('btnInstalarApp'); if(b) b.textContent='📲 Instalar checklist na tela'; });
+window.addEventListener('appinstalled',()=>toast('Checklist instalado na tela do celular.'));
+
 async function boot(){applyTheme(); readSession(); applySessionUI(); bind(); await loadModel(); restoreDraft(); renderSymptoms(); renderGroups(); if(!isSessionOk()) go('screenAccess'); else go('screenStart');}
 function bind(){
  $('btnTheme')?.addEventListener('click',()=>{state.theme=state.theme==='dark'?'light':'dark';applyTheme()});
+ $('btnIrSistema')?.addEventListener('click',abrirSistemaSaaS);
+ $('btnIrLoginSaaS')?.addEventListener('click',abrirSistemaSaaS);
+ $('btnInstalarApp')?.addEventListener('click',instalarChecklistApp);
+ $('btnManualTopo')?.addEventListener('click',imprimirManualUmaPagina);
  $('placa')?.addEventListener('input',e=>{e.target.value=placaNorm(e.target.value)});
  $('consultaPlaca')?.addEventListener('input',e=>{e.target.value=placaNorm(e.target.value)});
  $('btnBuscarPlaca')?.addEventListener('click',buscarHistorico);
@@ -83,12 +115,23 @@ function bind(){
  $('btnJSON')?.addEventListener('click',baixarJSON);
  $('btnPrintManual')?.addEventListener('click',imprimirManualUmaPagina);
  $('btnImportOS')?.addEventListener('click',enviarParaOS);
+ $('btnAbrirEntrega')?.addEventListener('click',abrirChecklistEntrega);
+ $('btnSalvarEntrega')?.addEventListener('click',salvarChecklistEntrega);
+ $('btnAnexarEntregaOS')?.addEventListener('click',anexarEntregaNaOS);
+ $('btnPdfEntrega')?.addEventListener('click',gerarPDFEntrega);
+ $('btnVoltarResumoEntrega')?.addEventListener('click',()=>go('screenResumo'));
+ $('entregaStatus')?.addEventListener('change',e=>{state.entregaStatus=e.target.value; saveDraft();});
+ $('entregaObsFinal')?.addEventListener('input',e=>{state.entregaObsFinal=e.target.value; saveDraft();});
+ $('btnNovoFinal')?.addEventListener('click',novoChecklist);
+ $('btnInicioFinal')?.addEventListener('click',()=>go('screenStart'));
+ $('btnConsultaFinal')?.addEventListener('click',()=>{go('screenConsulta'); consultarChecklists();});
+ $('btnVerHistoricoFinal')?.addEventListener('click',()=>{state.historicoVisivel=true; renderHistoricoDetalhado(); go('screenStart'); setTimeout(()=>document.getElementById('historicoDetalhado')?.scrollIntoView({behavior:'smooth',block:'start'}),100);});
  $('btnVoltar')?.addEventListener('click',prevScreen);
  $('btnAvancar')?.addEventListener('click',nextScreen);
  window.addEventListener('beforeunload',saveDraft);
 }
 async function loadModel(){
- try{ const r=await fetch('./data/checklist-model.json?ts=20260623v4',{cache:'no-store'}); state.model=await r.json(); }
+ try{ const r=await fetch('./data/checklist-model.json?ts=20260623v10',{cache:'no-store'}); state.model=await r.json(); }
  catch(e){ console.error(e); state.model={sintomas:[],secoes:[],sugestoes:{}}; toast('Modelo não carregado.'); }
 }
 function firebaseConfig(){
@@ -132,29 +175,50 @@ async function buscarOSPorPlacaDireto(db,col,placa){
  }
  return out.filter(tenantOk);
 }
+
+function cacheOSLocalDaSessao(){
+ const out=[];
+ try{ if(Array.isArray(window.J?.os)) out.push(...window.J.os.map(o=>({id:o.id,_col:'window.J.os',...o}))); }catch(e){}
+ try{ if(Array.isArray(window.J?.ordens)) out.push(...window.J.ordens.map(o=>({id:o.id,_col:'window.J.ordens',...o}))); }catch(e){}
+ const keys=['J_OS_CACHE','JARVIS_OS_CACHE','OFICINIA_OS_CACHE','dbOS','ordens_servico_cache','os_cache'];
+ keys.forEach(k=>{ try{ const raw=sessionStorage.getItem(k)||localStorage.getItem(k); if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)) out.push(...arr.map(o=>({id:o.id,_col:k,...o}))); } }catch(e){} });
+ return out;
+}
+function camposDataOS(o){ return ts(o.dataEntrada||o.entrada||o.criadoEm||o.createdAt||o.updatedAt||o.data||o.dataAbertura||o.dataOS||o.finalizadoEm||o.entregueEm); }
+function osRefMatch(o,ref){
+ const r=NORM(ref); if(!r)return false;
+ return [o.id,o.numero,o.codigo,o.cod,o.osId,o.numeroOS,o.nOS,o.prisma,o.prismaNumero,o.referencia].some(v=>NORM(v)===r || (NORM(v)&&NORM(v).includes(r)));
+}
+
 async function buscarHistorico(){
  state.placa=placaNorm($('placa').value); if(!state.placa){toast('Digite a placa.');return;}
  $('historicoResumo').innerHTML='<div class="notice">🔎 Buscando histórico real da placa no SaaS...</div>';
- state.os=[]; state.histItens=[];
+ state.os=[]; state.histItens=[]; state.historicoVisivel=true;
+ const local=cacheOSLocalDaSessao().filter(o=>placaFromOS(o)===state.placa);
+ state.os.push(...local);
  const db=initFirebase();
- if(!db){ $('historicoResumo').innerHTML='<div class="notice warn">Firebase não carregado. Entre pelo equipe.html antes de abrir o checklist.</div>'; go('screenCheck'); return; }
- const cols=['ordens_servico','ordensServico','os','ordens','ordensServicoFinalizadas','historico_os'];
- for(const col of cols){
-   const diretos=await buscarOSPorPlacaDireto(db,col,state.placa);
-   state.os.push(...diretos.filter(o=>placaFromOS(o)===state.placa));
+ if(!db && !state.os.length){ $('historicoResumo').innerHTML='<div class="notice warn">Não consegui carregar Firebase nem cache local. Abra pelo Jarvis/equipe logado e tente novamente.</div>'; go('screenCheck'); return; }
+ const cols=['ordens_servico','ordensServico','os','ordens','ordensServicoFinalizadas','historico_os','servicos','ordensDeServico'];
+ if(db){
+   for(const col of cols){
+     const diretos=await buscarOSPorPlacaDireto(db,col,state.placa);
+     state.os.push(...diretos.filter(o=>placaFromOS(o)===state.placa));
+   }
+   if(!state.os.length){
+     for(const col of cols){ const docs=await getDocsFromCol(db,col,2200); state.os.push(...docs.filter(o=>placaFromOS(o)===state.placa)); }
+   }
  }
- if(!state.os.length){
-   for(const col of cols){ const docs=await getDocsFromCol(db,col,1500); state.os.push(...docs.filter(o=>placaFromOS(o)===state.placa)); }
- }
- const seen=new Set(); state.os=state.os.filter(o=>{const k=(o._col||'')+'-'+o.id;if(seen.has(k))return false;seen.add(k);return true}).sort((a,b)=>ts(b.dataEntrada||b.entrada||b.criadoEm||b.createdAt||b.data)-ts(a.dataEntrada||a.entrada||a.criadoEm||a.createdAt||a.data));
+ const seen=new Set(); state.os=state.os.filter(o=>{const k=(o._col||'')+'-'+(o.id||o.numero||o.codigo||JSON.stringify(o).slice(0,80)); if(seen.has(k))return false; seen.add(k); return true;}).sort((a,b)=>camposDataOS(b)-camposDataOS(a));
  state.histItens=extrairHistorico(state.os);
  renderHistoricoResumo(); renderGroups(); go('screenCheck'); saveDraft();
+ if(state.os.length) toast(`Histórico carregado: ${state.os.length} O.S. e ${state.histItens.length} itens.`); else toast('Nenhum histórico encontrado para a placa.');
 }
+
 function extrairHistorico(lista){
  const out=[];
  lista.forEach(o=>{
    const base={osId:o.numero||o.codigo||o.id,docId:o.id,col:o._col,status:o.status||'',data:ts(o.dataEntrada||o.entrada||o.criadoEm||o.createdAt||o.data),cliente:o.clienteNome||o.cliente||o.nomeCliente||o.cliente?.nome||'',veiculo:o.veiculo||o.modelo||o.veiculoModelo||o.veiculo?.modelo||'',km:o.km||o.kmEntrada||o.kmAtual||'',total:o.total||o.valorTotal||0};
-   const fontes=[['Peças da O.S.',o.pecas],['Peças orçamento',o.pecasOS],['Peças reais',o.pecasReais],['Peças trocadas',o.pecasTrocadas],['Peças aplicadas',o.pecasAplicadas],['Serviços',o.servicos],['Serviços executados',o.servicosExecutados],['Mão de obra',o.maoDeObra||o.maosObra],['Itens',o.itens],['Itens aprovados',o.itensAprovados],['Checklist anterior',o.checklistItens]];
+   const fontes=[['Peças da O.S.',o.pecas],['Peças orçamento',o.pecasOS||o.itensPecas||o.pecasOrcamento],['Peças reais',o.pecasReais||o.pecasRealmenteTrocadas||o.itensReais],['Peças trocadas',o.pecasTrocadas||o.pecasExecutadas],['Peças aplicadas',o.pecasAplicadas||o.aplicacoes],['Serviços',o.servicos||o.servicosOS||o.itensServicos],['Serviços executados',o.servicosExecutados||o.maoDeObraExecutada],['Mão de obra',o.maoDeObra||o.maosObra||o.maoDeObraItens],['Itens',o.itens||o.items],['Itens aprovados',o.itensAprovados||o.aprovados],['Checklist anterior',o.checklistItens||o.checklistsTecnicos]];
    fontes.forEach(([fonte,arr])=>{ if(!Array.isArray(arr)) return; arr.forEach(x=>{ const desc=x.descricao||x.desc||x.nome||x.servico||x.peca||x.item||x.titulo||''; if(!desc)return; out.push({...base,fonte,tipo:fonte.toLowerCase().includes('peç')?'peça':'serviço',descricao:desc,norm:NORM(desc),codigo:x.codigo||x.cod||x.codigoOriginal||'',qtd:x.qtd||x.quantidade||1,valor:x.valor||x.total||x.valorVenda||x.venda||0}); }); });
    ['diagnostico','diagnosticoTecnico','diagnosticoInterno','relato','observacoes','obs','defeito','queixa'].forEach(k=>{ if(o[k]) out.push({...base,fonte:k,tipo:'texto',descricao:o[k],norm:NORM(o[k])}); });
  });
@@ -164,9 +228,10 @@ function renderHistoricoResumo(){
  const box=$('historicoResumo');
  if(!state.os.length){box.innerHTML='<div class="notice warn">Nenhuma O.S. encontrada para essa placa. O checklist continua funcionando e será salvo com a placa informada.</div>'; renderHistoricoDetalhado(); return;}
  const ult=state.os[0];
- box.innerHTML=`<div class="hist-card"><b>✅ Histórico carregado da placa ${esc(state.placa)}</b><br>${state.os.length} O.S. • ${state.histItens.length} itens técnicos encontrados<br><span>Última O.S.: ${esc(ult.numero||ult.codigo||ult.id)} • ${fmtDate(ts(ult.dataEntrada||ult.entrada||ult.criadoEm||ult.createdAt))} • ${esc(ult.status||'')}</span><div style="margin-top:8px"><button class="btn small secondary" id="btnVerHistoricoPlaca" type="button">📜 Ver histórico completo da placa</button></div></div>`;
+ box.innerHTML=`<div class="hist-card"><b>✅ Histórico carregado da placa ${esc(state.placa)}</b><br>${state.os.length} O.S. • ${state.histItens.length} peças/serviços/textos encontrados<br><span>Última O.S.: ${esc(ult.numero||ult.codigo||ult.id)} • ${fmtDate(camposDataOS(ult))} • ${esc(ult.status||'')}</span><div style="margin-top:8px;display:grid;grid-template-columns:1fr;gap:6px"><button class="btn small secondary" id="btnVerHistoricoPlaca" type="button">📜 Ver/ocultar histórico completo</button></div></div>`;
  setTimeout(()=>{$('btnVerHistoricoPlaca')?.addEventListener('click',()=>{state.historicoVisivel=!state.historicoVisivel; renderHistoricoDetalhado();});},0); renderHistoricoDetalhado();
 }
+
 function renderHistoricoDetalhado(){
  const box=$('historicoDetalhado'); if(!box)return;
  if(!state.historicoVisivel){ box.innerHTML=''; return; }
@@ -222,11 +287,108 @@ async function addPhotos(files,itemId,label,cur){ const arr=Array.from(files||[]
 function renderMidia(){ const box=$('photoGrid'); if(!box)return; box.innerHTML=''; if(!state.photos.length){box.innerHTML='<div class="notice">Nenhuma foto anexada ainda.</div>'; return;} state.photos.forEach(p=>{ const d=document.createElement('div'); d.className='photo'; d.innerHTML=`<img src="${p.dataUrl}" alt="foto"><div><b>${esc(p.label)}</b><button type="button">Remover</button></div>`; d.querySelector('button').onclick=()=>{state.photos=state.photos.filter(x=>x.id!==p.id); state.selected.forEach(v=>{v.photos=(v.photos||[]).filter(id=>id!==p.id)}); saveDraft(); renderMidia(); renderGroups();}; box.appendChild(d); }); }
 async function toggleAudio(){ if(state.rec&&state.rec.state==='recording'){state.rec.stop();return;} try{ const stream=await navigator.mediaDevices.getUserMedia({audio:true}); const chunks=[]; state.rec=new MediaRecorder(stream); state.rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)}; state.rec.onstop=()=>{state.audioBlob=new Blob(chunks,{type:'audio/webm'}); state.audioUrl=URL.createObjectURL(state.audioBlob); $('audioBox').innerHTML=`<audio controls src="${state.audioUrl}"></audio>`; $('btnAudio').textContent='🎤 Gravar áudio'; stream.getTracks().forEach(t=>t.stop()); saveDraft();}; state.rec.start(); $('btnAudio').textContent='⏹️ Parar gravação'; toast('Gravando áudio...'); }catch(e){toast('Microfone não liberado.');} }
 function ditarTexto(){ const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){toast('Ditado não suportado.');return;} const rec=new SR(); rec.lang='pt-BR'; rec.onresult=e=>{$('diagnostico').value=($('diagnostico').value+'\n'+e.results[0][0].transcript).trim(); saveDraft();}; rec.start(); toast('Pode falar.'); }
-function payload(includePhotos=true){ const u=state.user||readSession(); const itens=Array.from(state.selected.values()).filter(x=>x.status||x.obs||x.photos?.length); return {versao:'checklist-concessionaria-v6-historico-scroll-print',tenantId:u.tid,oficinaNome:u.tnome||u.oficina?.nome||'',criadoEm:nowISO(),atualizadoEm:nowISO(),placa:placaNorm($('placa').value),osRef:$('osRef').value.trim(),mecanico:$('mecanico').value.trim()||u.nome,responsavel:$('mecanico').value.trim()||u.nome,mecanicoId:u.fid||'',responsavelId:u.fid||'',mecanicoRole:u.role||'',responsavelPerfil:u.role||'',km:$('km').value.trim(),relato:$('relato').value.trim(),diagnostico:$('diagnostico').value.trim(),sintomas:Array.from(state.sintomas),secaoAtiva:state.activeSecId,secoesConcluidas:Array.from(state.completedSecoes),itens,historico:{os:state.os.length,itens:state.histItens.length,placa:state.placa},fotos:includePhotos?state.photos:state.photos.map(p=>({id:p.id,itemId:p.itemId,label:p.label,createdAt:p.createdAt})),audioLocal:!!state.audioBlob,origem:'checklist.html'}; }
+function payload(includePhotos=true){ const u=state.user||readSession(); const itens=Array.from(state.selected.values()).filter(x=>x.status||x.obs||x.photos?.length); return {versao:'checklist-concessionaria-v10-entrega-conferencia',tenantId:u.tid,oficinaNome:u.tnome||u.oficina?.nome||'',criadoEm:nowISO(),atualizadoEm:nowISO(),placa:placaNorm($('placa').value),osRef:$('osRef').value.trim(),mecanico:$('mecanico').value.trim()||u.nome,responsavel:$('mecanico').value.trim()||u.nome,mecanicoId:u.fid||'',responsavelId:u.fid||'',mecanicoRole:u.role||'',responsavelPerfil:u.role||'',km:$('km').value.trim(),relato:$('relato').value.trim(),diagnostico:$('diagnostico').value.trim(),sintomas:Array.from(state.sintomas),secaoAtiva:state.activeSecId,secoesConcluidas:Array.from(state.completedSecoes),itens,historico:{os:state.os.length,itens:state.histItens.length,placa:state.placa},fotos:includePhotos?state.photos:state.photos.map(p=>({id:p.id,itemId:p.itemId,label:p.label,createdAt:p.createdAt})),audioLocal:!!state.audioBlob,entrega:payloadEntrega(),origem:'checklist.html'}; }
+
+function itensParaEntrega(){
+ const arr=Array.from(state.selected.values()).filter(x=>x.status==='trocar'||x.status==='atencao');
+ return arr.map((x,i)=>({id:x.id||('entrega_'+i),secao:x.secao||'',tipo:x.tipo||'',descricao:x.descricao||'',statusOrigem:x.status||'',obsOrigem:x.obs||''}));
+}
+function entregaRegistro(item){
+ const id=item.id; const cur=state.entrega.get(id)||{};
+ return {id,itemId:id,secao:item.secao,tipo:item.tipo,descricao:item.descricao,statusOrigem:item.statusOrigem,obsOrigem:item.obsOrigem,executado:!!cur.executado,naoExecutado:!!cur.naoExecutado,conferidoPor:cur.conferidoPor||'',conferidoPerfil:cur.conferidoPerfil||'',conferidoEm:cur.conferidoEm||'',obs:cur.obs||''};
+}
+function payloadEntrega(){
+ const u=state.user||readSession(); const itens=itensParaEntrega().map(entregaRegistro);
+ const feitos=itens.filter(x=>x.executado).length;
+ const pend=itens.filter(x=>!x.executado && !x.naoExecutado).length;
+ const nao=itens.filter(x=>x.naoExecutado).length;
+ const total=itens.length;
+ return {status:state.entregaStatus||'em_conferencia',obsFinal:state.entregaObsFinal||'',conferente:u.nome||'',conferenteId:u.fid||'',conferentePerfil:u.role||'',atualizadoEm:nowISO(),total,executados:feitos,pendentes:pend,naoExecutados:nao,percentual:total?Math.round((feitos/total)*100):0,itens};
+}
+function abrirChecklistEntrega(){ renderResumo(); renderEntrega(); go('screenEntrega'); }
+function setEntregaItem(id,patch){
+ const u=state.user||readSession(); const cur=state.entrega.get(id)||{}; const next={...cur,...patch};
+ if(patch.executado||patch.naoExecutado){ next.conferidoPor=u.nome||''; next.conferidoPerfil=u.role||''; next.conferidoEm=nowISO(); }
+ state.entrega.set(id,next); renderEntrega(); saveDraft();
+}
+function renderEntrega(){
+ const u=state.user||readSession(); if($('entregaConferente')) $('entregaConferente').value=(u.nome||'')+(u.role?' • '+u.role:'');
+ if($('entregaStatus')) $('entregaStatus').value=state.entregaStatus||'em_conferencia';
+ if($('entregaObsFinal')) $('entregaObsFinal').value=state.entregaObsFinal||'';
+ const box=$('entregaLista'); if(!box)return; const base=itensParaEntrega(); const payload=payloadEntrega();
+ if($('entregaPercent')) $('entregaPercent').textContent=payload.percentual+'% concluído';
+ if($('entregaBar')) $('entregaBar').style.width=payload.percentual+'%';
+ if(!base.length){ box.innerHTML='<div class="notice warn">Nenhum item marcado como Trocar/Atenção no checklist técnico. Marque itens no checklist técnico para gerar a conferência de entrega.</div>'; return; }
+ box.innerHTML=`<div class="kpis"><div class="kpi"><b>${payload.total}</b><span>Itens</span></div><div class="kpi"><b>${payload.executados}</b><span>Executados</span></div><div class="kpi"><b>${payload.pendentes}</b><span>Pendentes</span></div><div class="kpi"><b>${payload.naoExecutados}</b><span>Não feitos</span></div></div>`;
+ base.forEach(item=>{
+   const r=entregaRegistro(item); const d=document.createElement('div'); d.className='delivery-item '+(r.executado?'done':'pending');
+   d.innerHTML=`<div><b>${esc(item.descricao)}</b><div class="mini">${esc(item.secao)} • origem: ${statusLabel(item.statusOrigem)}${item.obsOrigem?' • '+esc(item.obsOrigem):''}</div></div><div class="delivery-meta"><span class="pill">Solicitado no checklist técnico</span>${r.conferidoPor?`<span class="pill">Conferido por: ${esc(r.conferidoPor)} (${esc(r.conferidoPerfil)})</span><span class="pill">${fmtDate(ts(r.conferidoEm))}</span>`:''}</div><div class="delivery-actions"><button type="button" data-act="feito" class="${r.executado?'on':''}">✅ Executado/conferido</button><button type="button" data-act="nao" class="${r.naoExecutado?'badon':''}">⛔ Não feito/pendente</button></div><textarea class="obs" placeholder="Observação da conferência (opcional)">${esc(r.obs||'')}</textarea>`;
+   d.querySelector('[data-act="feito"]').onclick=()=>setEntregaItem(item.id,{executado:true,naoExecutado:false});
+   d.querySelector('[data-act="nao"]').onclick=()=>setEntregaItem(item.id,{executado:false,naoExecutado:true});
+   d.querySelector('textarea').oninput=e=>setEntregaItem(item.id,{obs:e.target.value});
+   box.appendChild(d);
+ });
+}
+async function salvarChecklistEntrega(){
+ const p=payload(true); if(!p.placa){toast('Digite a placa antes de salvar a entrega.');return null;}
+ const entrega=p.entrega; try{localStorage.setItem('CHECKLIST_ENTREGA_ULTIMO_'+p.placa,JSON.stringify({placa:p.placa,osRef:p.osRef,checklist:p,entrega,criadoEm:nowISO()}));}catch(e){}
+ const db=initFirebase(); if(db){ try{ const ref=await db.collection('checklistsEntrega').add({...tenantFields(),placa:p.placa,osRef:p.osRef,checklistTecnico:p,entrega,createdAt:nowISO(),updatedAt:nowISO(),status:entrega.percentual>=100?'conferido':'parcial'}); toast('Checklist de entrega salvo no sistema.'); return ref.id; }catch(e){console.warn(e); toast('Conferência salva no celular. Banco recusou ou sem permissão.'); return null;} }
+ toast('Conferência salva no celular.'); return null;
+}
+function resumoEntregaParaOS(p,entregaId){
+ const e=p.entrega||payloadEntrega(); return {entregaId:entregaId||'',checklistTecnicoId:'',data:nowISO(),placa:p.placa,osRef:p.osRef||'',conferente:e.conferente||'',conferentePerfil:e.conferentePerfil||'',status:e.status,percentual:e.percentual,total:e.total,executados:e.executados,pendentes:e.pendentes,naoExecutados:e.naoExecutados,obsFinal:e.obsFinal||'',itens:e.itens.map(x=>({descricao:x.descricao,secao:x.secao,executado:x.executado,naoExecutado:x.naoExecutado,conferidoPor:x.conferidoPor,conferidoPerfil:x.conferidoPerfil,conferidoEm:x.conferidoEm,obs:x.obs||''})),origem:'checklist-entrega.html'};
+}
+async function anexarEntregaNaOS(){
+ const p=payload(true); if(!p.placa){toast('Digite a placa antes de anexar na O.S.');return;}
+ const db=initFirebase(); const entregaId=await salvarChecklistEntrega(); if(!db){baixarJSON(); toast('Sem Firebase. Baixei JSON para anexar manualmente.');return;}
+ const os=await localizarOSParaAnexo(db); if(!os||!os.id||!os._col){baixarJSON(); toast('Não localizei a O.S. Baixei JSON para importação manual.');return;}
+ const resumo=resumoEntregaParaOS(p,entregaId); const diagAtual=String(os.diagnosticoTecnico||os.diagnosticoInterno||'');
+ const bloco=`\n\n[CHECKLIST DE ENTREGA ${new Date().toLocaleString('pt-BR')}] ${resumo.conferente} (${resumo.conferentePerfil})\nStatus: ${resumo.status} • ${resumo.percentual}% • Executados: ${resumo.executados}/${resumo.total} • Pendentes: ${resumo.pendentes+resumo.naoExecutados}\n${resumo.obsFinal||''}\nItens:\n${resumo.itens.map(i=>'- '+(i.executado?'OK':'PENDENTE')+' • '+i.secao+' • '+i.descricao+(i.obs?' — '+i.obs:'')).join('\n')}`;
+ const up={checklistEntregaUltimo:resumo,checklistEntregaAtualizadoEm:nowISO(),checklistsEntrega:(window.firebase?.firestore?.FieldValue?.arrayUnion?window.firebase.firestore.FieldValue.arrayUnion(resumo):[resumo]),diagnosticoTecnico:(diagAtual+bloco).trim()};
+ try{await db.collection(os._col).doc(os.id).update(up); toast('Checklist de entrega anexado na O.S.');}
+ catch(e){console.warn(e); baixarJSON(); toast('Não consegui atualizar a O.S. JSON baixado para importação manual.');}
+}
+async function gerarPDFEntrega(){
+ if(!window.jspdf){toast('jsPDF não carregado.');return;} const {jsPDF}=window.jspdf; const p=payload(true); const e=p.entrega; const doc=new jsPDF('p','mm','a4'); let y=12;
+ function footer(){doc.setFontSize(8);doc.setTextColor(115);doc.text('Powered by thIAguinho Soluções Digitais • OFICIN-IA • Checklist de entrega',12,292);}
+ function page(h=8){if(y+h>284){footer();doc.addPage();y=12;}}
+ function txt(t,size=9,b=false){page(8);doc.setFont('helvetica',b?'bold':'normal');doc.setFontSize(size);doc.setTextColor(15,23,42);const lines=doc.splitTextToSize(String(t||''),186);doc.text(lines,12,y);y+=lines.length*4.6;}
+ doc.setFillColor(15,23,42);doc.rect(0,0,210,24,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(14);doc.text('Checklist de Entrega / Conferência',12,13);doc.setFontSize(9);doc.text(`OFICIN-IA • ${new Date().toLocaleString('pt-BR')}`,12,20);y=34;
+ txt(`Placa: ${p.placa||'-'}   O.S.: ${p.osRef||'-'}   KM: ${p.km||'-'}`,10,true); txt(`Conferente: ${e.conferente||'-'} (${e.conferentePerfil||'-'})   Percentual: ${e.percentual}%   Status: ${e.status}`,9,false); if(e.obsFinal)txt('Observação final: '+e.obsFinal,9,false);
+ txt('Itens conferidos',11,true); e.itens.forEach((i,idx)=>{txt(`${idx+1}. [${i.executado?'EXECUTADO':i.naoExecutado?'NÃO FEITO':'PENDENTE'}] ${i.secao} • ${i.descricao}${i.obs?' — '+i.obs:''}${i.conferidoPor?' • por '+i.conferidoPor:''}`,8,false);}); footer(); doc.save(`CHECKLIST_ENTREGA_${p.placa||'SEM_PLACA'}_${Date.now()}.pdf`);
+}
 function renderResumo(){ const p=payload(false); const trocar=p.itens.filter(x=>x.status==='trocar').length, at=p.itens.filter(x=>x.status==='atencao').length, ok=p.itens.filter(x=>x.status==='ok').length; $('kTrocar').textContent=trocar; $('kAtencao').textContent=at; $('kOk').textContent=ok; $('kFotos').textContent=state.photos.length; const box=$('resumoLista'); box.innerHTML=''; const list=p.itens.filter(x=>x.status==='trocar'||x.status==='atencao'); if(!list.length){box.innerHTML='<div class="notice">Nenhum item crítico marcado.</div>';return;} list.forEach(x=>{ const d=document.createElement('div'); d.className='resume-line'; d.innerHTML=`<div><b>${esc(x.descricao)}</b><span>${esc(x.secao)} • ${esc(x.obs||'sem comentário')}</span></div><strong class="${statusClass(x.status)}">${statusLabel(x.status)}</strong>`; box.appendChild(d);}); }
 async function salvarChecklist(){ const p=payload(false); if(!p.placa){toast('Digite a placa.');return;} try{localStorage.setItem('CHECKLIST_ULTIMO_'+p.placa,JSON.stringify(payload(true)));}catch(e){} const db=initFirebase(); if(db){ try{ const ref=await db.collection('checklists').add({...p,...tenantFields(),createdAt:nowISO(),updatedAt:nowISO(),status:'salvo'}); toast('Checklist salvo no sistema e no celular.'); return ref.id; }catch(e){console.warn(e); toast('Salvo no celular. Banco recusou ou sem permissão.'); return null;} } toast('Salvo no celular.'); return null; }
 function baixarJSON(){ const p=payload(true); downloadBlob(JSON.stringify(p,null,2),'application/json',`CHECKLIST_${p.placa||'SEM_PLACA'}_${Date.now()}.json`); }
-function gerarXLSX(){ if(!window.XLSX){toast('XLSX não carregado.');return;} const p=payload(false); const wb=XLSX.utils.book_new(); const resumo=[['OFICIN-IA • CHECKLIST PADRÃO CONCESSIONÁRIA'],['Placa',p.placa,'O.S./Ref',p.osRef,'Responsável',p.responsavel||p.mecanico],['KM',p.km,'Data',new Date(p.criadoEm).toLocaleString('pt-BR'),'Oficina',p.oficinaNome],['Histórico encontrado',`${p.historico.os} O.S. / ${p.historico.itens} itens`],[],['Relato do cliente',p.relato],['Diagnóstico técnico',p.diagnostico],[],['Resumo'],['Trocar',p.itens.filter(x=>x.status==='trocar').length],['Atenção',p.itens.filter(x=>x.status==='atencao').length],['OK',p.itens.filter(x=>x.status==='ok').length],['Fotos',state.photos.length]]; let ws=XLSX.utils.aoa_to_sheet(resumo); ws['!cols']=[{wch:24},{wch:35},{wch:18},{wch:24},{wch:18},{wch:30}]; XLSX.utils.book_append_sheet(wb,ws,'Resumo'); const itens=[['Status','Tipo','Seção','Item','Comentário','Fotos','Histórico']]; p.itens.forEach(x=>{const h=matchHist(x.descricao); itens.push([statusLabel(x.status),x.tipo,x.secao,x.descricao,x.obs||'',(x.photos||[]).length,h?`${fmtDate(h.data)} • OS ${h.osId} • ${h.descricao}`:'Sem histórico']);}); ws=XLSX.utils.aoa_to_sheet(itens); ws['!cols']=[{wch:14},{wch:16},{wch:28},{wch:46},{wch:50},{wch:8},{wch:62}]; XLSX.utils.book_append_sheet(wb,ws,'Itens avaliados'); const hist=[['Data','O.S.','Status','Tipo','Fonte','Descrição','KM','Valor']]; state.histItens.slice(0,400).forEach(h=>hist.push([fmtDate(h.data),h.osId,h.status,h.tipo,h.fonte,h.descricao,h.km||'',Number(h.valor||0)])); ws=XLSX.utils.aoa_to_sheet(hist); ws['!cols']=[{wch:12},{wch:16},{wch:16},{wch:12},{wch:20},{wch:55},{wch:12},{wch:14}]; XLSX.utils.book_append_sheet(wb,ws,'Histórico placa'); const fotos=[['Item','Data','Observação'],...state.photos.map(f=>[f.label,fmtDate(f.createdAt),'Foto salva no PDF/JSON/local'])]; ws=XLSX.utils.aoa_to_sheet(fotos); ws['!cols']=[{wch:42},{wch:18},{wch:40}]; XLSX.utils.book_append_sheet(wb,ws,'Fotos'); XLSX.writeFile(wb,`CHECKLIST_${p.placa||'SEM_PLACA'}_${Date.now()}.xlsx`); }
+function gerarXLSX(){
+ if(!window.XLSX){toast('XLSX não carregado.');return;}
+ const p=payload(false); const wb=XLSX.utils.book_new();
+ wb.Props={Title:'Checklist Técnico OFICIN-IA',Subject:'Relatório de checklist técnico',Author:'thIAguinho Soluções Digitais',Company:'OFICIN-IA'};
+ const crit=p.itens.filter(x=>x.status==='trocar'||x.status==='atencao');
+ const resumo=[
+  ['OFICIN-IA • CHECKLIST TÉCNICO PADRÃO CONCESSIONÁRIA'],
+  ['Gerado em',new Date(p.criadoEm).toLocaleString('pt-BR'),'Placa',p.placa||'-','O.S./Ref',p.osRef||'-'],
+  ['Responsável',p.responsavel||p.mecanico||'-','Perfil',p.responsavelPerfil||p.mecanicoRole||'-','KM',p.km||'-'],
+  ['Oficina',p.oficinaNome||'-','Histórico',`${p.historico.os} O.S. / ${p.historico.itens} itens`,'Fotos',state.photos.length],
+  [],['RESUMO EXECUTIVO'],
+  ['Trocar',p.itens.filter(x=>x.status==='trocar').length],['Atenção',p.itens.filter(x=>x.status==='atencao').length],['OK',p.itens.filter(x=>x.status==='ok').length],['N/A',p.itens.filter(x=>x.status==='na').length],
+  [],['Relato do cliente'],[p.relato||''],[],['Diagnóstico técnico interno'],[p.diagnostico||''],[],['Observação para O.S.'],['Use a aba IMPORTAR_OS para copiar peças, serviços e diagnóstico para a O.S. do Jarvis.']
+ ];
+ let ws=XLSX.utils.aoa_to_sheet(resumo); ws['!cols']=[{wch:24},{wch:34},{wch:16},{wch:24},{wch:16},{wch:28}]; ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:5}}]; XLSX.utils.book_append_sheet(wb,ws,'01 Resumo');
+ const importar=[['Tipo','Seção','Descrição','Qtd','Valor sugerido','Comentário','Histórico encontrado','Ação sugerida']];
+ crit.forEach(x=>{const h=matchHist(x.descricao); importar.push([x.tipo,x.secao,x.descricao,1,'',x.obs||'',h?`${fmtDate(h.data)} • OS ${h.osId} • ${h.descricao}`:'Sem histórico',x.status==='trocar'?'Adicionar à O.S.':'Avaliar']);});
+ ws=XLSX.utils.aoa_to_sheet(importar); ws['!cols']=[{wch:16},{wch:25},{wch:52},{wch:8},{wch:14},{wch:45},{wch:60},{wch:18}]; ws['!autofilter']={ref:`A1:H${Math.max(1,importar.length)}`}; XLSX.utils.book_append_sheet(wb,ws,'02 IMPORTAR_OS');
+ const itens=[['Status','Tipo','Seção','Item','Comentário','Fotos','Último histórico']];
+ p.itens.forEach(x=>{const h=matchHist(x.descricao); itens.push([statusLabel(x.status),x.tipo,x.secao,x.descricao,x.obs||'',(x.photos||[]).length,h?`${fmtDate(h.data)} • OS ${h.osId} • ${h.descricao}`:'Sem histórico']);});
+ ws=XLSX.utils.aoa_to_sheet(itens); ws['!cols']=[{wch:14},{wch:16},{wch:28},{wch:48},{wch:54},{wch:8},{wch:68}]; ws['!autofilter']={ref:`A1:G${Math.max(1,itens.length)}`}; XLSX.utils.book_append_sheet(wb,ws,'03 Itens avaliados');
+ const hist=[['Data','O.S.','Status','Cliente','Veículo','Tipo','Fonte','Descrição','KM','Valor']];
+ state.histItens.slice(0,600).forEach(h=>hist.push([fmtDate(h.data),h.osId,h.status,h.cliente||'',h.veiculo||'',h.tipo,h.fonte,h.descricao,h.km||'',Number(h.valor||0)]));
+ ws=XLSX.utils.aoa_to_sheet(hist); ws['!cols']=[{wch:12},{wch:16},{wch:16},{wch:32},{wch:28},{wch:12},{wch:22},{wch:58},{wch:12},{wch:14}]; ws['!autofilter']={ref:`A1:J${Math.max(1,hist.length)}`}; XLSX.utils.book_append_sheet(wb,ws,'04 Histórico placa');
+ const fotos=[['Item/Seção','Data','Observação'],...state.photos.map(f=>[f.label,fmtDate(f.createdAt),'Foto incorporada no PDF e salva no JSON/checklist'])];
+ ws=XLSX.utils.aoa_to_sheet(fotos); ws['!cols']=[{wch:42},{wch:18},{wch:48}]; XLSX.utils.book_append_sheet(wb,ws,'05 Fotos');
+ XLSX.writeFile(wb,`CHECKLIST_OFICINIA_${p.placa||'SEM_PLACA'}_${Date.now()}.xlsx`); toast('Planilha inteligente gerada.');
+}
+
 async function gerarPDF(){
  if(!window.jspdf){toast('jsPDF não carregado.');return;} const {jsPDF}=window.jspdf; const p=payload(true); const doc=new jsPDF('p','mm','a4'); let y=12; const W=210;
  function pageCheck(h=8){if(y+h>284){footer();doc.addPage();y=12;}}
@@ -254,13 +416,43 @@ function imprimirManualUmaPagina(){
  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Checklist manual OFICIN-IA</title><style>@page{size:A4;margin:7mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:9px}header{border-bottom:2px solid #111;padding-bottom:4px;margin-bottom:4px;display:grid;grid-template-columns:1fr auto;gap:8px}h1{font-size:15px;margin:0}p{margin:2px 0}.meta{font-size:9px;text-align:right}.wrap{columns:2;column-gap:5mm}section{break-inside:avoid;border:1px solid #999;border-radius:6px;padding:4px;margin:0 0 4px;background:#fff}h2{font-size:10px;margin:0 0 3px;padding-bottom:2px;border-bottom:1px solid #ccc}.mini-grid{display:grid;grid-template-columns:1fr;gap:1px}label{display:flex;gap:3px;align-items:flex-start;line-height:1.08}.chk{width:8px;height:8px;border:1px solid #111;display:inline-block;flex:0 0 8px;margin-top:1px}.obs{border:1px solid #999;height:32px;border-radius:6px;margin-top:4px;padding:3px}.foot{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #999;padding-top:2px;font-size:8px;text-align:center}@media print{button{display:none}}</style></head><body><header><div><h1>Checklist Técnico Manual • OFICIN-IA</h1><p>Placa: <b>${esc(placa||'________')}</b> &nbsp; O.S.: <b>${esc(os||'________')}</b> &nbsp; KM: __________</p><p>Responsável: <b>${esc(resp||'________________')}</b> &nbsp; Data: ____/____/______</p></div><div class="meta">OK / Atenção / Trocar<br>usar observação quando necessário</div></header><div class="wrap">${grupos}</div><div class="obs"><b>Observações gerais:</b></div><div class="foot">Powered by thIAguinho Soluções Digitais • OFICIN-IA</div><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`;
  const w=window.open('','_blank'); if(!w){toast('Pop-up bloqueado. Libere pop-ups para imprimir.');return;} w.document.open(); w.document.write(html); w.document.close();
 }
-async function enviarParaOS(){ await salvarChecklist(); baixarJSON(); toast('JSON gerado para importar/anexar na O.S. do Jarvis. Baixe também o PDF.'); }
+async function localizarOSParaAnexo(db){
+ const ref=String($('osRef')?.value||'').trim(); const placa=placaNorm($('placa')?.value||state.placa||'');
+ let candidatos=[]; if(ref) candidatos=state.os.filter(o=>osRefMatch(o,ref));
+ if(!candidatos.length && placa) candidatos=state.os.filter(o=>placaFromOS(o)===placa);
+ if(candidatos.length===1) return candidatos[0];
+ if(ref && db){
+   const cols=['ordens_servico','ordensServico','os','ordens'];
+   for(const col of cols){
+     try{ const d=await db.collection(col).doc(ref).get(); if(d.exists) return {id:d.id,_col:col,...d.data()}; }catch(e){}
+     const docs=await getDocsFromCol(db,col,800); const found=docs.find(o=>osRefMatch(o,ref)); if(found) return found;
+   }
+ }
+ return null;
+}
+function resumoParaOS(p,checklistId){
+ const crit=p.itens.filter(x=>x.status==='trocar'||x.status==='atencao');
+ return {checklistId:checklistId||'',data:p.criadoEm,placa:p.placa,osRef:p.osRef||'',responsavel:p.responsavel||p.mecanico||'',responsavelPerfil:p.responsavelPerfil||p.mecanicoRole||'',km:p.km||'',trocar:p.itens.filter(x=>x.status==='trocar').length,atencao:p.itens.filter(x=>x.status==='atencao').length,fotos:(p.fotos||[]).length,diagnostico:p.diagnostico||'',relato:p.relato||'',itensCriticos:crit.slice(0,80).map(x=>({status:x.status,tipo:x.tipo,secao:x.secao,descricao:x.descricao,obs:x.obs||''})),origem:'checklist.html'};
+}
+async function enviarParaOS(){
+ const p=payload(true); if(!p.placa){toast('Digite a placa antes de enviar para O.S.');return;}
+ const db=initFirebase(); const checklistId=await salvarChecklist();
+ if(!db){ baixarJSON(); toast('Firebase não carregou. Baixei o JSON para importar manualmente na O.S.'); return; }
+ const os=await localizarOSParaAnexo(db); if(!os||!os.id||!os._col){ baixarJSON(); toast('Não localizei a O.S. pelo campo O.S./Ref. Baixei o JSON para anexar manualmente.'); return; }
+ const resumo=resumoParaOS(p,checklistId);
+ const diagAtual=String(os.diagnosticoTecnico||os.diagnosticoInterno||'');
+ const bloco=`\n\n[CHECKLIST TÉCNICO ${fmtDate(Date.now())}] ${resumo.responsavel} (${resumo.responsavelPerfil})\nTrocar: ${resumo.trocar} | Atenção: ${resumo.atencao} | Fotos: ${resumo.fotos}\n${p.diagnostico||p.relato||''}\nItens críticos:\n${resumo.itensCriticos.map(i=>'- '+statusLabel(i.status)+' • '+i.secao+' • '+i.descricao+(i.obs?' — '+i.obs:'')).join('\n')}`;
+ const up={checklistUltimo:resumo,checklistAtualizadoEm:nowISO(),checklistsTecnicos:(window.firebase?.firestore?.FieldValue?.arrayUnion?window.firebase.firestore.FieldValue.arrayUnion(resumo):[resumo]),diagnosticoTecnico:(diagAtual+bloco).trim()};
+ try{ await db.collection(os._col).doc(os.id).update(up); toast('Checklist salvo e anexado na O.S. do Jarvis.'); }
+ catch(e){ console.warn(e); baixarJSON(); toast('Não consegui atualizar a O.S. por permissão/campo. JSON baixado para importação manual.'); }
+}
+
 function downloadBlob(content,type,name){ const blob=new Blob([content],{type}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
 function saveDraft(){ try{localStorage.setItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user'),JSON.stringify(payload(true))); if($('draftInfo')) $('draftInfo').textContent='Rascunho salvo';}catch(e){console.warn('rascunho grande demais',e)} }
 function restoreDraft(){ try{ const raw=localStorage.getItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user'))||localStorage.getItem('CHECKLIST_RASCUNHO'); if(!raw)return; const p=JSON.parse(raw); if(!p)return; if(p.placa&&!$('placa').value)$('placa').value=p.placa; if(p.osRef)$('osRef').value=p.osRef; if(p.km)$('km').value=p.km; if(p.relato)$('relato').value=p.relato; if(p.diagnostico)$('diagnostico').value=p.diagnostico; (p.itens||[]).forEach(x=>state.selected.set(x.id,x)); state.photos=p.fotos||[]; state.activeSecId=p.secaoAtiva||''; state.completedSecoes=new Set(p.secoesConcluidas||[]); }catch(e){} }
-function novoChecklist(){ if(!confirm('Zerar este checklist e começar um novo? O histórico salvo no sistema não será apagado.'))return; const mec=$('mecanico')?.value||state.user?.nome||''; ['placa','osRef','km','relato','diagnostico'].forEach(id=>{if($(id))$(id).value=''}); if($('mecanico'))$('mecanico').value=mec; state.placa=''; state.os=[]; state.histItens=[]; state.selected.clear(); state.sintomas.clear(); state.activeSecId=''; state.completedSecoes.clear(); state.photos=[]; state.audioBlob=null; state.audioUrl=''; $('historicoResumo').innerHTML=''; $('audioBox').innerHTML=''; localStorage.removeItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user')); renderSymptoms(); renderGroups(); renderMidia(); go('screenStart'); toast('Novo checklist iniciado.'); }
+function novoChecklist(){ if(!confirm('Zerar este checklist e começar um novo? O histórico salvo no sistema não será apagado.'))return; const mec=$('mecanico')?.value||state.user?.nome||''; ['placa','osRef','km','relato','diagnostico'].forEach(id=>{if($(id))$(id).value=''}); if($('mecanico'))$('mecanico').value=mec; state.placa=''; state.os=[]; state.histItens=[]; state.selected.clear(); state.sintomas.clear(); state.activeSecId=''; state.completedSecoes.clear(); state.entrega.clear(); state.entregaStatus='em_conferencia'; state.entregaObsFinal=''; state.photos=[]; state.audioBlob=null; state.audioUrl=''; $('historicoResumo').innerHTML=''; $('audioBox').innerHTML=''; localStorage.removeItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user')); renderSymptoms(); renderGroups(); renderMidia(); go('screenStart'); toast('Novo checklist iniciado.'); }
 async function consultarChecklists(){ const box=$('consultaLista'); if(!box)return; box.innerHTML='<div class="notice">Pesquisando checklists salvos...</div>'; const db=initFirebase(); const placa=placaNorm($('consultaPlaca')?.value||$('placa')?.value||''); const mec=NORM($('consultaMecanico')?.value||''); const qtd=Number($('consultaQtd')?.value||20); let list=[]; if(db){ try{ const docs=await getDocsFromCol(db,'checklists',Math.max(qtd,100)); list=docs; }catch(e){console.warn(e)} } const local=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith('CHECKLIST_ULTIMO_')){try{local.push(JSON.parse(localStorage.getItem(k)))}catch(e){}} } list=list.concat(local).filter(Boolean); if(placa) list=list.filter(x=>placaNorm(x.placa)===placa); if(mec) list=list.filter(x=>NORM(x.responsavel||x.mecanico||x.mecanicoNome||'').includes(mec)); list=list.sort((a,b)=>ts(b.criadoEm||b.createdAt)-ts(a.criadoEm||a.createdAt)).slice(0,qtd); if(!list.length){box.innerHTML='<div class="notice warn">Nenhum checklist encontrado para o filtro.</div>';return;} box.innerHTML=''; list.forEach(x=>{ const d=document.createElement('div'); d.className='consulta-card'; const crit=(x.itens||[]).filter(i=>i.status==='trocar'||i.status==='atencao').length; d.innerHTML=`<b>${esc(x.placa||'-')} • ${esc(x.osRef||'sem O.S.')}</b><small>${fmtDate(ts(x.criadoEm||x.createdAt))} • Responsável: ${esc(x.responsavel||x.mecanico||'-')} • ${crit} crítico(s) • ${x.fotos?.length||0} foto(s)</small><div style="margin-top:8px"><button class="btn small secondary" type="button">Carregar neste aparelho</button></div>`; d.querySelector('button').onclick=()=>{loadChecklistPayload(x); go('screenStart'); toast('Checklist carregado.');}; box.appendChild(d); }); }
-function loadChecklistPayload(p){ if(!p)return; if($('placa'))$('placa').value=p.placa||''; if($('osRef'))$('osRef').value=p.osRef||''; if($('km'))$('km').value=p.km||''; if($('relato'))$('relato').value=p.relato||''; if($('diagnostico'))$('diagnostico').value=p.diagnostico||''; state.selected.clear(); (p.itens||[]).forEach(x=>state.selected.set(x.id,x)); state.photos=p.fotos||[]; state.completedSecoes=new Set(p.secoesConcluidas||[]); state.activeSecId=p.secaoAtiva||''; renderSymptoms(); renderGroups(); renderMidia(); renderResumo(); }
-window.CHECKLIST_OFICINIA={state,buscarHistorico,consultarChecklists,novoChecklist,gerarPDF,gerarXLSX,baixarJSON,salvarChecklist};
+function loadChecklistPayload(p){ if(!p)return; if($('placa'))$('placa').value=p.placa||''; if($('osRef'))$('osRef').value=p.osRef||''; if($('km'))$('km').value=p.km||''; if($('relato'))$('relato').value=p.relato||''; if($('diagnostico'))$('diagnostico').value=p.diagnostico||''; state.selected.clear(); (p.itens||[]).forEach(x=>state.selected.set(x.id,x)); state.photos=p.fotos||[]; state.completedSecoes=new Set(p.secoesConcluidas||[]); state.activeSecId=p.secaoAtiva||''; state.entrega=new Map((p.entrega?.itens||[]).map(x=>[x.itemId||x.id,x])); state.entregaStatus=p.entrega?.status||state.entregaStatus; state.entregaObsFinal=p.entrega?.obsFinal||state.entregaObsFinal; renderSymptoms(); renderGroups(); renderMidia(); renderResumo(); }
+window.CHECKLIST_OFICINIA={state,buscarHistorico,consultarChecklists,novoChecklist,gerarPDF,gerarXLSX,baixarJSON,salvarChecklist,enviarParaOS,abrirChecklistEntrega,salvarChecklistEntrega,anexarEntregaNaOS,gerarPDFEntrega};
 boot();
 })();
