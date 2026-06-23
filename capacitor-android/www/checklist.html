@@ -32,7 +32,7 @@
   <div class="top">
     <div class="hero">
       <div class="hero-row">
-        <div><h1>Checklist Inteligente OFICIN-IA</h1><div class="sub">Padrão concessionária • histórico por placa • fotos • áudio • PDF/XLSX profissional • versão manual 1 página</div></div>
+        <div><h1>Checklist Inteligente OFICIN-IA</h1><div class="sub">Padrão concessionária • edição por gestão • exclusão autorizada • app próprio • A4 manual</div></div>
         <button class="btn secondary small" id="btnTheme" type="button">🌗 Tema</button>
       </div>
       <div class="session"><span class="pill" id="sessOficina">Oficina</span><span class="pill" id="sessMecanico">Responsável</span><span class="pill" id="sessStatus">Sessão</span></div>
@@ -60,6 +60,9 @@
       <button class="btn" id="btnBuscarPlaca" type="button">🔎 Buscar histórico da placa</button>
       <button class="btn secondary" id="btnNovo" type="button">🆕 Novo / zerar checklist</button>
       <button class="btn secondary" id="btnAbrirConsulta" type="button">📚 Consultar checklists</button>
+      <button class="btn secondary" id="btnIrSistema" type="button">🏠 Ir para sistema SaaS</button>
+      <button class="btn secondary" id="btnInstalarApp" type="button">📲 Instalar checklist</button>
+      <button class="btn secondary" id="btnManualTopo" type="button">🖨️ Checklist manual A4</button>
     </div>
     <div id="historicoResumo" style="margin-top:10px"></div>
     <div id="historicoDetalhado" style="margin-top:10px"></div>
@@ -73,7 +76,7 @@
       <div><label>Quantidade</label><select id="consultaQtd" class="inp"><option>20</option><option>50</option><option>100</option></select></div>
     </div>
     <div style="margin-top:8px"><button class="btn full" id="btnConsultar" type="button">Pesquisar checklists salvos</button></div>
-    <div id="consultaLista" class="consulta-list"></div>
+    <div class="notice" style="margin-top:8px">Gestores/gerentes/admins verão os botões <b>Editar</b> e <b>Excluir</b> nos checklists encontrados.</div><div id="consultaLista" class="consulta-list"></div>
   </section>
 
   <section class="card hidden" id="screenCheck">
@@ -155,6 +158,6 @@
   <button class="btn" id="btnAvancar" type="button">Avançar ➜</button>
 </div></div>
 <div class="toast" id="toast"></div>
-<script src="./js/checklist.js?v=20260623v10"></script>
+<script src="./js/checklist.js?v=20260623v11"></script>
 </body>
 </html>

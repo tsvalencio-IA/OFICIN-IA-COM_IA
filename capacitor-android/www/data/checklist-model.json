@@ -1,5 +1,5 @@
 {
-  "versao": "20260623-checklist-concessionaria-v2",
+  "versao": "20260623-checklist-concessionaria-v11-gestao-edicao-apk",
   "origem": "Histórico OFICIN-IA + planilhas ITENS_AGRUPADOS + checklist padrão concessionária",
   "sintomas": [
     {
@@ -185,7 +185,17 @@
         "Borracha capô",
         "Porta desalinhada",
         "Ruído de vento/vedação",
-        "Infiltração de água"
+        "Infiltração de água",
+        "Regulagem de porta dianteira esquerda",
+        "Regulagem de porta dianteira direita",
+        "Regulagem de porta traseira esquerda",
+        "Regulagem de porta traseira direita",
+        "Regulagem de fechadura de porta",
+        "Regulagem de batente de porta",
+        "Lubrificação de fechaduras e dobradiças",
+        "Substituição de borracha de porta",
+        "Substituição de canaleta de vidro",
+        "Ajuste de máquina de vidro"
       ]
     },
     {
@@ -299,7 +309,13 @@
         "Limpeza TBI",
         "Descarbonização",
         "Compressão do motor",
-        "Ruído interno do motor"
+        "Ruído interno do motor",
+        "Regulagem de válvulas",
+        "Conferência de folga de válvulas",
+        "Substituição de junta da tampa de válvulas",
+        "Teste de compressão dos cilindros",
+        "Teste de vazamento de cilindros",
+        "Conferência de sincronismo do motor"
       ]
     },
     {
@@ -411,7 +427,17 @@
         "Freio de estacionamento",
         "Regulagem freio traseiro",
         "Ruído ao frear",
-        "Vibração ao frear"
+        "Vibração ao frear",
+        "Retífica de disco dianteiro",
+        "Retífica de disco traseiro",
+        "Retífica de tambor de freio",
+        "Retífica de campana",
+        "Trocar lona de freio",
+        "Trocar sapata de freio",
+        "Regulagem de alavanca do freio de estacionamento",
+        "Regulagem do freio de mão",
+        "Sangria completa do sistema de freio",
+        "Limpeza e regulagem de tambor/campana"
       ]
     },
     {
@@ -506,7 +532,11 @@
         "Coxim câmbio",
         "Ruído câmbio",
         "Patinação embreagem",
-        "Trepidação saída"
+        "Trepidação saída",
+        "Regulagem de alavanca de câmbio",
+        "Regulagem de trambulador",
+        "Conferência de cabo de embreagem",
+        "Conferência de atuador de embreagem"
       ]
     },
     {
@@ -665,6 +695,36 @@
       "Farol baixo LE",
       "Regulagem dos faróis",
       "Soquete de lâmpada"
+    ],
+    "Pastilha dianteira": [
+      "Retífica de disco dianteiro",
+      "Sangria completa do sistema de freio",
+      "Fluido de freio"
+    ],
+    "Disco dianteiro": [
+      "Retífica de disco dianteiro",
+      "Pastilha dianteira",
+      "Sangria completa do sistema de freio"
+    ],
+    "Tambor de freio": [
+      "Retífica de tambor de freio",
+      "Trocar lona de freio",
+      "Regulagem do freio de mão"
+    ],
+    "Lona de freio": [
+      "Trocar sapata de freio",
+      "Retífica de campana",
+      "Regulagem de alavanca do freio de estacionamento"
+    ],
+    "Porta dianteira esquerda": [
+      "Regulagem de porta dianteira esquerda",
+      "Regulagem de fechadura de porta",
+      "Lubrificação de fechaduras e dobradiças"
+    ],
+    "Vazamento tampa de válvulas": [
+      "Regulagem de válvulas",
+      "Substituição de junta da tampa de válvulas",
+      "Conferência de folga de válvulas"
     ]
   }
 }

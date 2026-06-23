@@ -31,14 +31,18 @@ function hydrateSessionFromSavedLogin(){
 }
 function readSession(){
   if(!getStore('j_tid') || !getStore('j_role') || !getStore('j_nome')) hydrateSessionFromSavedLogin();
+  const rolePossivel = getStore('j_role') || getStore('j_cargo') || getStore('j_role_master') || getStore('perfil') || getStore('role') || getStore('cargo') || getStore('tipoUsuario') || getStore('userRole') || getStore('usuarioPerfil') || getStore('j_perfil');
+  const nomePossivel = getStore('j_nome') || getStore('nome') || getStore('usuarioNome') || getStore('userName') || getStore('displayName');
+  const tidPossivel = getStore('j_tid') || getStore('tenantId') || getStore('oficinaId') || getStore('tid');
+  const actorPossivel = getStore('j_actor_type') || getStore('actorType') || getStore('origemLogin') || 'jarvis';
   const u={
-    tid:getStore('j_tid'),
-    role:getStore('j_role')||getStore('j_cargo')||getStore('j_role_master'),
-    cargo:getStore('j_cargo'),
-    actorType:getStore('j_actor_type')||'jarvis',
-    nome:getStore('j_nome'),
-    tnome:getStore('j_tnome'),
-    fid:getStore('j_fid')||getStore('j_admin_email')||'',
+    tid:tidPossivel,
+    role:rolePossivel,
+    cargo:getStore('j_cargo') || getStore('cargo') || rolePossivel,
+    actorType:actorPossivel,
+    nome:nomePossivel,
+    tnome:getStore('j_tnome') || getStore('oficinaNome') || getStore('tenantNome'),
+    fid:getStore('j_fid')||getStore('j_admin_email')||getStore('uid')||getStore('userId')||'',
     cloudName:getStore('j_cloud_name')||'dmuvm1o6m',
     cloudPreset:getStore('j_cloud_preset')||'evolution'
   };
@@ -48,6 +52,155 @@ function readSession(){
 function roleNorm(v){return NORM(v).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
 function isRoleAutorizado(role){ const r=roleNorm(role); if(!r)return false; if(r.includes('cliente'))return false; return state.allowedRoles.some(a=>r===a||r.includes(a)); }
 function isSessionOk(){ const u=state.user||readSession(); return !!(u.tid && u.nome && isRoleAutorizado(u.role)); }
+function isGestao(){
+  const u=state.user||readSession();
+  const bruto=[u.role,u.cargo,u.actorType,getStore('j_role'),getStore('j_cargo'),getStore('j_perfil'),getStore('perfil'),getStore('cargo'),getStore('role'),getStore('tipoUsuario'),getStore('userRole'),getStore('usuarioPerfil')].filter(Boolean).join(' ');
+  const r=roleNorm(bruto);
+  if(!r || r.includes('cliente')) return false;
+  if(/gerente|gestor|administrativo|admin|master|dono|proprietario|owner|super/.test(r)) return true;
+  // Gestor/dono logado pelo Jarvis nem sempre grava cargo em todas as chaves.
+  // Se veio do Jarvis/admin e não é equipe/mecânico/cliente, libera ações de gestão.
+  const actor=roleNorm(u.actorType||getStore('j_actor_type')||'');
+  const temSessao=!!(u.tid && u.nome);
+  if(temSessao && /jarvis|admin|gestao|gestor|gerente/.test(actor) && !/equipe|mecanico|mecan|tecnico|cliente/.test(r+' '+actor)) return true;
+  return false;
+}
+function modeloKey(){ return 'CHECKLIST_MODELO_CUSTOM_V13'; }
+function legadoKey(){ return 'CHECKLIST_MODELO_CUSTOM_V11'; }
+function lerModeloEdicao(){
+  try{
+    const raw=localStorage.getItem(modeloKey())||localStorage.getItem(legadoKey());
+    if(!raw) return {add:{},rename:{},deleted:{},required:{},criticidade:{},auditoria:[]};
+    const cfg=JSON.parse(raw)||{};
+    if(Array.isArray(cfg) || Object.values(cfg).some(v=>Array.isArray(v))){
+      return {add:cfg,rename:{},deleted:{},required:{},criticidade:{},auditoria:[]};
+    }
+    cfg.add=cfg.add||{}; cfg.rename=cfg.rename||{}; cfg.deleted=cfg.deleted||{}; cfg.required=cfg.required||{}; cfg.criticidade=cfg.criticidade||{}; cfg.auditoria=cfg.auditoria||[];
+    return cfg;
+  }catch(e){ return {add:{},rename:{},deleted:{},required:{},criticidade:{},auditoria:[]}; }
+}
+function salvarModeloEdicao(cfg,acao,detalhe){
+  try{
+    const u=state.user||readSession();
+    cfg.auditoria=cfg.auditoria||[];
+    cfg.auditoria.push({acao,detalhe,por:u.nome||'',perfil:u.role||'',em:nowISO()});
+    localStorage.setItem(modeloKey(),JSON.stringify(cfg));
+  }catch(e){console.warn('não salvou edição do modelo',e)}
+}
+function itemKeyText(v){ return String(v||'').trim(); }
+function aplicarModeloEdicoes(){
+  if(!state.model) return;
+  const cfg=lerModeloEdicao();
+  (state.model.secoes||[]).forEach(sec=>{
+    const secId=sec.id; sec.itens=sec.itens||[];
+    const deleted=(cfg.deleted&&cfg.deleted[secId])||[];
+    const ren=(cfg.rename&&cfg.rename[secId])||{};
+    sec.itens=sec.itens.map(it=>ren[itemKeyText(it)]||it).filter(it=>!deleted.includes(itemKeyText(it)));
+    const add=(cfg.add&&cfg.add[secId])||[];
+    add.forEach(it=>{ if(it && !sec.itens.includes(it) && !deleted.includes(it)) sec.itens.push(it); });
+  });
+}
+function carregarModeloCustom(){ aplicarModeloEdicoes(); }
+function salvarModeloCustom(secId,item){
+  const cfg=lerModeloEdicao(); cfg.add[secId]=cfg.add[secId]||[];
+  if(item && !cfg.add[secId].includes(item)) cfg.add[secId].push(item);
+  salvarModeloEdicao(cfg,'adicionar_item',{secId,item});
+}
+function getItemMeta(secId,item){
+  const cfg=lerModeloEdicao(); const key=itemKeyText(item);
+  return {obrigatorio:!!(cfg.required?.[secId]?.[key]),criticidade:(cfg.criticidade?.[secId]?.[key]||'normal')};
+}
+function adicionarItemGestao(secId){
+  if(!isGestao()){toast('Somente gestor, gerente ou admin pode editar itens.');return;}
+  const sec=(state.model.secoes||[]).find(x=>x.id===secId); if(!sec)return;
+  const nome=prompt('Novo item para a seção '+sec.titulo+':');
+  const item=String(nome||'').trim(); if(!item)return;
+  sec.itens=sec.itens||[];
+  if(!sec.itens.includes(item)){sec.itens.push(item); salvarModeloCustom(secId,item);}
+  state.activeSecId=secId; renderGroups(); toast('Item adicionado nesta seção.');
+}
+function editarItemGestao(sec,it,cur){
+  if(!isGestao()){toast('Somente gestor, gerente ou admin pode editar item.');return;}
+  const novo=prompt('Editar descrição do item:', cur.descricao||it);
+  if(!novo || !String(novo).trim())return;
+  const n=String(novo).trim();
+  const old=itemKeyText(it);
+  const cfg=lerModeloEdicao(); cfg.rename[sec.id]=cfg.rename[sec.id]||{}; cfg.rename[sec.id][old]=n;
+  salvarModeloEdicao(cfg,'renomear_item',{secId:sec.id,de:old,para:n});
+  sec.itens=(sec.itens||[]).map(x=>itemKeyText(x)===old?n:x);
+  cur.descricao=n; cur.id=itemId(sec,n);
+  cur.editadoPor=(state.user||readSession()).nome||''; cur.editadoPerfil=(state.user||readSession()).role||''; cur.editadoEm=nowISO();
+  state.selected.delete(itemId(sec,it)); state.selected.set(cur.id,cur);
+  saveDraft(); renderGroups(); toast('Item editado e salvo no modelo da seção.');
+}
+function excluirItemGestao(sec,it){
+  if(!isGestao()){toast('Somente gestor, gerente ou admin pode excluir item.');return;}
+  const old=itemKeyText(it);
+  if(!confirm('Remover este item da seção '+sec.titulo+'?\n\n'+old)) return;
+  const cfg=lerModeloEdicao(); cfg.deleted[sec.id]=cfg.deleted[sec.id]||[]; if(!cfg.deleted[sec.id].includes(old)) cfg.deleted[sec.id].push(old);
+  salvarModeloEdicao(cfg,'excluir_item',{secId:sec.id,item:old});
+  sec.itens=(sec.itens||[]).filter(x=>itemKeyText(x)!==old);
+  state.selected.delete(itemId(sec,it));
+  saveDraft(); renderGroups(); toast('Item removido desta seção.');
+}
+function alternarObrigatorioGestao(sec,it){
+  if(!isGestao()){toast('Somente gestor, gerente ou admin pode alterar obrigatoriedade.');return;}
+  const key=itemKeyText(it); const cfg=lerModeloEdicao(); cfg.required[sec.id]=cfg.required[sec.id]||{}; cfg.required[sec.id][key]=!cfg.required[sec.id][key];
+  salvarModeloEdicao(cfg,'alternar_obrigatorio',{secId:sec.id,item:key,obrigatorio:cfg.required[sec.id][key]});
+  renderGroups(); toast(cfg.required[sec.id][key]?'Item marcado como obrigatório.':'Item deixou de ser obrigatório.');
+}
+function alterarCriticidadeGestao(sec,it){
+  if(!isGestao()){toast('Somente gestor, gerente ou admin pode alterar criticidade.');return;}
+  const key=itemKeyText(it); const atual=getItemMeta(sec.id,it).criticidade;
+  const novo=prompt('Criticidade do item: normal, importante ou critico', atual);
+  if(!novo)return; const val=roleNorm(novo).includes('critic')?'critico':roleNorm(novo).includes('import')?'importante':'normal';
+  const cfg=lerModeloEdicao(); cfg.criticidade[sec.id]=cfg.criticidade[sec.id]||{}; cfg.criticidade[sec.id][key]=val;
+  salvarModeloEdicao(cfg,'alterar_criticidade',{secId:sec.id,item:key,criticidade:val});
+  renderGroups(); toast('Criticidade alterada: '+val);
+}
+function gerenciarSecaoGestao(secId){
+  if(!isGestao()){toast('Somente gestor, gerente ou admin pode gerenciar seções.');return;}
+  const sec=(state.model.secoes||[]).find(x=>x.id===secId); if(!sec)return;
+  const op=prompt('Gerenciar seção '+sec.titulo+'\n\n1 - Adicionar item\n2 - Renomear item\n3 - Excluir item\n4 - Marcar/desmarcar obrigatório\n5 - Alterar criticidade\n\nDigite o número:');
+  if(!op)return;
+  if(op==='1') return adicionarItemGestao(secId);
+  const lista=(sec.itens||[]).map((x,i)=>(i+1)+' - '+x).join('\n');
+  const idx=Number(prompt('Escolha o item pelo número:\n\n'+lista));
+  const it=(sec.itens||[])[idx-1]; if(!it){toast('Item inválido.');return;}
+  if(op==='2') return editarItemGestao(sec,it,state.selected.get(itemId(sec,it))||{id:itemId(sec,it),secao:sec.titulo,tipo:guessTipo(sec,it),descricao:it,status:'',obs:'',photos:[]});
+  if(op==='3') return excluirItemGestao(sec,it);
+  if(op==='4') return alternarObrigatorioGestao(sec,it);
+  if(op==='5') return alterarCriticidadeGestao(sec,it);
+}
+function excluirChecklistPermitido(){ return isGestao(); }
+async function excluirChecklistSalvo(chk){
+  if(!excluirChecklistPermitido()){toast('Somente gestor/gerente/admin pode excluir checklist. Perfil atual: '+((state.user||readSession()).role||'não identificado'));return;}
+  if(!confirm('Excluir este checklist salvo? Essa ação é restrita a gestores/gerentes/admins e não remove a O.S.'))return;
+  const db=initFirebase();
+  let removidoBanco=false, removidoLocal=false;
+  try{
+    if(chk && chk.id && chk._col && db){ await db.collection(chk._col).doc(chk.id).delete(); removidoBanco=true; }
+  }catch(e){console.warn('delete firestore',e);}
+  try{
+    const alvoPlaca=placaNorm(chk?.placa||'');
+    const alvoCriado=String(chk?.criadoEm||chk?.createdAt||'');
+    const alvoId=String(chk?.id||'');
+    const apagar=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i); if(!k||!k.startsWith('CHECKLIST_')) continue;
+      try{ const v=JSON.parse(localStorage.getItem(k)||'null')||{};
+        const sameId=alvoId && String(v.id||'')===alvoId;
+        const samePlaca=alvoPlaca && placaNorm(v.placa||'')===alvoPlaca;
+        const sameCriado=alvoCriado && String(v.criadoEm||v.createdAt||'')===alvoCriado;
+        if(sameId || (samePlaca && (!alvoCriado || sameCriado)) || k==='CHECKLIST_ULTIMO_'+alvoPlaca) apagar.push(k);
+      }catch(e){}
+    }
+    apagar.forEach(k=>{localStorage.removeItem(k); removidoLocal=true;});
+  }catch(e){console.warn('delete local',e);}
+  if(removidoBanco||removidoLocal){toast('Checklist excluído.'); consultarChecklists();}
+  else toast('Não encontrei registro apagável. Se ele veio do Firebase, verifique regra de permissão para gestor/gerente.');
+}
+
 function applySessionUI(){
   const u=state.user||readSession();
   if($('sessOficina')) $('sessOficina').textContent='🏢 '+(u.tnome||u.oficina?.nome||'Oficina');
@@ -131,7 +284,7 @@ function bind(){
  window.addEventListener('beforeunload',saveDraft);
 }
 async function loadModel(){
- try{ const r=await fetch('./data/checklist-model.json?ts=20260623v10',{cache:'no-store'}); state.model=await r.json(); }
+ try{ const r=await fetch('./data/checklist-model.json?ts=20260623v13',{cache:'no-store'}); state.model=await r.json(); carregarModeloCustom(); }
  catch(e){ console.error(e); state.model={sintomas:[],secoes:[],sugestoes:{}}; toast('Modelo não carregado.'); }
 }
 function firebaseConfig(){
@@ -265,19 +418,19 @@ function renderGroups(){
    const aberto=q?true:shouldOpen(sec); const p=secProgress(sec.id);
    if(!aberto){ box.appendChild(closedSection(sec,p)); return; }
    const det=document.createElement('details'); det.open=true; det.className='sec open-focus'; det.id='sec-'+sec.id;
-   det.innerHTML=`<summary><span><span class="draw">${sec.emoji}</span> ${esc(sec.titulo)}</span><small>${p.done}/${p.total}</small></summary><div class="quick-help">Avalie esta seção. Ao terminar, toque em <b>Concluir e minimizar</b>.</div><div class="hint">${esc(sec.hint||'')}</div><div class="items"></div><div class="sec-actions"><button type="button" class="btn secondary" data-close-sec="${sec.id}">Minimizar</button><button type="button" class="btn ok" data-done-sec="${sec.id}">Concluir seção ✅</button></div>`;
+   det.innerHTML=`<summary><span><span class="draw">${sec.emoji}</span> ${esc(sec.titulo)}</span><small>${p.done}/${p.total}</small></summary><div class="quick-help">Avalie esta seção. Ao terminar, toque em <b>Concluir e minimizar</b>.</div><div class="hint">${esc(sec.hint||'')}</div><div class="items"></div><div class="sec-actions"><button type="button" class="btn secondary" data-close-sec="${sec.id}">Minimizar</button><button type="button" class="btn ok" data-done-sec="${sec.id}">Concluir seção ✅</button>${isGestao()?`<button type="button" class="btn secondary" data-manage-sec="${sec.id}">⚙️ Editar seção/itens</button>`:''}</div>`;
    const cont=det.querySelector('.items'); items.forEach(it=>cont.appendChild(renderItem(sec,it)));
    det.querySelector('[data-close-sec]')?.addEventListener('click',()=>{state.activeSecId=''; renderSymptoms(); renderGroups(); saveDraft();});
-   det.querySelector('[data-done-sec]')?.addEventListener('click',()=>concluirSecao(sec.id)); box.appendChild(det);
+   det.querySelector('[data-done-sec]')?.addEventListener('click',()=>concluirSecao(sec.id)); det.querySelector('[data-manage-sec]')?.addEventListener('click',()=>gerenciarSecaoGestao(sec.id)); box.appendChild(det);
  }); updateBottomCount();
 }
 function closedSection(sec,p){ const d=document.createElement('button'); d.type='button'; d.className='section-closed'+(state.completedSecoes.has(sec.id)?' done':''); d.innerHTML=`<span><b><span class="draw">${sec.emoji}</span> ${esc(sec.titulo)}</b><small>${p.done}/${p.total} avaliados${p.crit?' • '+p.crit+' críticos':''}</small></span><span>abrir</span>`; d.onclick=()=>abrirSecao(sec.id,true); return d; }
 function renderItem(sec,it){
- const id=itemId(sec,it); const cur=state.selected.get(id)||{id,secao:sec.titulo,tipo:guessTipo(sec,it),descricao:it,status:'',obs:'',photos:[]}; const hist=matchHist(it); const el=document.createElement('div'); el.className='item'; el.dataset.id=id; const photoCount=(cur.photos||[]).length;
- el.innerHTML=`<div class="item-head"><div class="item-icon">${sec.emoji}</div><div><b>${esc(it)}</b><div class="mini">${esc(sec.titulo)} • ${cur.tipo}</div></div></div><div class="hist ${hist?'':'empty'}">${hist?`🕘 Última vez: <b>${fmtDate(hist.data)}</b> • O.S. ${esc(hist.osId)} • ${esc(hist.descricao).slice(0,130)} ${hist.km?`• KM ${esc(hist.km)}`:''}`:'Sem histórico encontrado para este item nessa placa.'}</div><div class="status-grid"><button type="button" data-st="ok" class="${cur.status==='ok'?'on ok':''}">✅ OK</button><button type="button" data-st="atencao" class="${cur.status==='atencao'?'on warn':''}">⚠️ Atenção</button><button type="button" data-st="trocar" class="${cur.status==='trocar'?'on bad':''}">🔧 Trocar</button><button type="button" data-st="na" class="${cur.status==='na'?'on na':''}">➖ N/A</button></div><textarea class="obs" placeholder="Comentário rápido desse item (opcional)">${esc(cur.obs||'')}</textarea><div class="item-actions"><label class="filebtn">📷 Foto <input type="file" accept="image/*" capture="environment" multiple hidden></label><span class="photo-count">${photoCount?photoCount+' foto(s)':'sem foto'}</span></div><div class="sugs"></div>`;
+ const id=itemId(sec,it); const meta=getItemMeta(sec.id,it); const cur=state.selected.get(id)||{id,secao:sec.titulo,tipo:guessTipo(sec,it),descricao:it,status:'',obs:'',photos:[],obrigatorio:meta.obrigatorio,criticidade:meta.criticidade}; cur.obrigatorio=meta.obrigatorio; cur.criticidade=meta.criticidade; const hist=matchHist(it); const el=document.createElement('div'); el.className='item'; el.dataset.id=id; const photoCount=(cur.photos||[]).length;
+ el.innerHTML=`<div class="item-head"><div class="item-icon">${sec.emoji}</div><div><b>${esc(it)}</b><div class="mini">${esc(sec.titulo)} • ${cur.tipo}${cur.obrigatorio?' • obrigatório':''}${cur.criticidade&&cur.criticidade!=='normal'?' • '+cur.criticidade:''}</div></div></div><div class="hist ${hist?'':'empty'}">${hist?`🕘 Última vez: <b>${fmtDate(hist.data)}</b> • O.S. ${esc(hist.osId)} • ${esc(hist.descricao).slice(0,130)} ${hist.km?`• KM ${esc(hist.km)}`:''}`:'Sem histórico encontrado para este item nessa placa.'}</div><div class="status-grid"><button type="button" data-st="ok" class="${cur.status==='ok'?'on ok':''}">✅ OK</button><button type="button" data-st="atencao" class="${cur.status==='atencao'?'on warn':''}">⚠️ Atenção</button><button type="button" data-st="trocar" class="${cur.status==='trocar'?'on bad':''}">🔧 Trocar</button><button type="button" data-st="na" class="${cur.status==='na'?'on na':''}">➖ N/A</button></div><textarea class="obs" placeholder="Comentário rápido desse item (opcional)">${esc(cur.obs||'')}</textarea><div class="item-actions"><label class="filebtn">📷 Foto <input type="file" accept="image/*" capture="environment" multiple hidden></label>${isGestao()?'<button type="button" class="btn small secondary" data-edit-item="1">✏️ Editar</button><button type="button" class="btn small secondary" data-req-item="1">⭐ Obrigatório</button><button type="button" class="btn small secondary" data-crit-item="1">🚦 Criticidade</button><button type="button" class="btn small bad" data-del-item="1">🗑️ Remover</button>':''}<span class="photo-count">${photoCount?photoCount+' foto(s)':'sem foto'}</span></div><div class="sugs"></div>`;
  el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{cur.status=b.dataset.st; state.selected.set(id,cur); renderGroups(); saveDraft();});
  el.querySelector('.obs').oninput=e=>{cur.obs=e.target.value; if(cur.status||cur.obs||cur.photos?.length)state.selected.set(id,cur); saveDraft();};
- el.querySelector('input[type=file]').onchange=e=>addPhotos(e.target.files,id,it,cur); renderSugestoes(el.querySelector('.sugs'), it); return el;
+ el.querySelector('input[type=file]').onchange=e=>addPhotos(e.target.files,id,it,cur); el.querySelector('[data-edit-item]')?.addEventListener('click',()=>editarItemGestao(sec,it,cur)); el.querySelector('[data-del-item]')?.addEventListener('click',()=>excluirItemGestao(sec,it)); el.querySelector('[data-req-item]')?.addEventListener('click',()=>alternarObrigatorioGestao(sec,it)); el.querySelector('[data-crit-item]')?.addEventListener('click',()=>alterarCriticidadeGestao(sec,it)); renderSugestoes(el.querySelector('.sugs'), it); return el;
 }
 function renderSugestoes(box,it){ const sugs=state.model.sugestoes?.[it]||[]; if(!sugs.length)return; box.innerHTML='<div class="sug-title">Sugestão inteligente do conjunto:</div>'; sugs.slice(0,5).forEach(s=>{ const b=document.createElement('button'); b.type='button'; b.className='sug'; b.textContent='＋ '+s; b.onclick=()=>{ const sec=(state.model.secoes||[]).find(x=>(x.itens||[]).includes(s)); if(sec){ const id=itemId(sec,s); const cur=state.selected.get(id)||{id,secao:sec.titulo,tipo:guessTipo(sec,s),descricao:s,status:'atencao',obs:'Sugerido pelo conjunto: '+it,photos:[]}; state.selected.set(id,cur); toast('Item sugerido marcado: '+s); renderGroups(); saveDraft(); }}; box.appendChild(b); }); }
 function guessTipo(sec,it){ const n=NORM(sec.titulo+' '+it); return /SERVICO|ALINHAMENTO|BALANCEAMENTO|SANGRIA|LIMPEZA|HIGIENIZACAO|LEITURA|TESTE|REGULAGEM|CALIBRAGEM|RODIZIO|DESMONTAGEM/.test(n)?'serviço':'peça/serviço'; }
@@ -287,7 +440,7 @@ async function addPhotos(files,itemId,label,cur){ const arr=Array.from(files||[]
 function renderMidia(){ const box=$('photoGrid'); if(!box)return; box.innerHTML=''; if(!state.photos.length){box.innerHTML='<div class="notice">Nenhuma foto anexada ainda.</div>'; return;} state.photos.forEach(p=>{ const d=document.createElement('div'); d.className='photo'; d.innerHTML=`<img src="${p.dataUrl}" alt="foto"><div><b>${esc(p.label)}</b><button type="button">Remover</button></div>`; d.querySelector('button').onclick=()=>{state.photos=state.photos.filter(x=>x.id!==p.id); state.selected.forEach(v=>{v.photos=(v.photos||[]).filter(id=>id!==p.id)}); saveDraft(); renderMidia(); renderGroups();}; box.appendChild(d); }); }
 async function toggleAudio(){ if(state.rec&&state.rec.state==='recording'){state.rec.stop();return;} try{ const stream=await navigator.mediaDevices.getUserMedia({audio:true}); const chunks=[]; state.rec=new MediaRecorder(stream); state.rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)}; state.rec.onstop=()=>{state.audioBlob=new Blob(chunks,{type:'audio/webm'}); state.audioUrl=URL.createObjectURL(state.audioBlob); $('audioBox').innerHTML=`<audio controls src="${state.audioUrl}"></audio>`; $('btnAudio').textContent='🎤 Gravar áudio'; stream.getTracks().forEach(t=>t.stop()); saveDraft();}; state.rec.start(); $('btnAudio').textContent='⏹️ Parar gravação'; toast('Gravando áudio...'); }catch(e){toast('Microfone não liberado.');} }
 function ditarTexto(){ const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){toast('Ditado não suportado.');return;} const rec=new SR(); rec.lang='pt-BR'; rec.onresult=e=>{$('diagnostico').value=($('diagnostico').value+'\n'+e.results[0][0].transcript).trim(); saveDraft();}; rec.start(); toast('Pode falar.'); }
-function payload(includePhotos=true){ const u=state.user||readSession(); const itens=Array.from(state.selected.values()).filter(x=>x.status||x.obs||x.photos?.length); return {versao:'checklist-concessionaria-v10-entrega-conferencia',tenantId:u.tid,oficinaNome:u.tnome||u.oficina?.nome||'',criadoEm:nowISO(),atualizadoEm:nowISO(),placa:placaNorm($('placa').value),osRef:$('osRef').value.trim(),mecanico:$('mecanico').value.trim()||u.nome,responsavel:$('mecanico').value.trim()||u.nome,mecanicoId:u.fid||'',responsavelId:u.fid||'',mecanicoRole:u.role||'',responsavelPerfil:u.role||'',km:$('km').value.trim(),relato:$('relato').value.trim(),diagnostico:$('diagnostico').value.trim(),sintomas:Array.from(state.sintomas),secaoAtiva:state.activeSecId,secoesConcluidas:Array.from(state.completedSecoes),itens,historico:{os:state.os.length,itens:state.histItens.length,placa:state.placa},fotos:includePhotos?state.photos:state.photos.map(p=>({id:p.id,itemId:p.itemId,label:p.label,createdAt:p.createdAt})),audioLocal:!!state.audioBlob,entrega:payloadEntrega(),origem:'checklist.html'}; }
+function payload(includePhotos=true){ const u=state.user||readSession(); const itens=Array.from(state.selected.values()).filter(x=>x.status||x.obs||x.photos?.length); return {versao:'checklist-concessionaria-v13-edicao-total-secao-apk-unico',tenantId:u.tid,oficinaNome:u.tnome||u.oficina?.nome||'',criadoEm:nowISO(),atualizadoEm:nowISO(),placa:placaNorm($('placa').value),osRef:$('osRef').value.trim(),mecanico:$('mecanico').value.trim()||u.nome,responsavel:$('mecanico').value.trim()||u.nome,mecanicoId:u.fid||'',responsavelId:u.fid||'',mecanicoRole:u.role||'',responsavelPerfil:u.role||'',km:$('km').value.trim(),relato:$('relato').value.trim(),diagnostico:$('diagnostico').value.trim(),sintomas:Array.from(state.sintomas),secaoAtiva:state.activeSecId,secoesConcluidas:Array.from(state.completedSecoes),itens,historico:{os:state.os.length,itens:state.histItens.length,placa:state.placa},fotos:includePhotos?state.photos:state.photos.map(p=>({id:p.id,itemId:p.itemId,label:p.label,createdAt:p.createdAt})),audioLocal:!!state.audioBlob,entrega:payloadEntrega(),origem:'checklist.html'}; }
 
 function itensParaEntrega(){
  const arr=Array.from(state.selected.values()).filter(x=>x.status==='trocar'||x.status==='atencao');
@@ -451,8 +604,8 @@ function downloadBlob(content,type,name){ const blob=new Blob([content],{type});
 function saveDraft(){ try{localStorage.setItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user'),JSON.stringify(payload(true))); if($('draftInfo')) $('draftInfo').textContent='Rascunho salvo';}catch(e){console.warn('rascunho grande demais',e)} }
 function restoreDraft(){ try{ const raw=localStorage.getItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user'))||localStorage.getItem('CHECKLIST_RASCUNHO'); if(!raw)return; const p=JSON.parse(raw); if(!p)return; if(p.placa&&!$('placa').value)$('placa').value=p.placa; if(p.osRef)$('osRef').value=p.osRef; if(p.km)$('km').value=p.km; if(p.relato)$('relato').value=p.relato; if(p.diagnostico)$('diagnostico').value=p.diagnostico; (p.itens||[]).forEach(x=>state.selected.set(x.id,x)); state.photos=p.fotos||[]; state.activeSecId=p.secaoAtiva||''; state.completedSecoes=new Set(p.secoesConcluidas||[]); }catch(e){} }
 function novoChecklist(){ if(!confirm('Zerar este checklist e começar um novo? O histórico salvo no sistema não será apagado.'))return; const mec=$('mecanico')?.value||state.user?.nome||''; ['placa','osRef','km','relato','diagnostico'].forEach(id=>{if($(id))$(id).value=''}); if($('mecanico'))$('mecanico').value=mec; state.placa=''; state.os=[]; state.histItens=[]; state.selected.clear(); state.sintomas.clear(); state.activeSecId=''; state.completedSecoes.clear(); state.entrega.clear(); state.entregaStatus='em_conferencia'; state.entregaObsFinal=''; state.photos=[]; state.audioBlob=null; state.audioUrl=''; $('historicoResumo').innerHTML=''; $('audioBox').innerHTML=''; localStorage.removeItem('CHECKLIST_RASCUNHO_'+(state.user?.fid||state.user?.nome||'user')); renderSymptoms(); renderGroups(); renderMidia(); go('screenStart'); toast('Novo checklist iniciado.'); }
-async function consultarChecklists(){ const box=$('consultaLista'); if(!box)return; box.innerHTML='<div class="notice">Pesquisando checklists salvos...</div>'; const db=initFirebase(); const placa=placaNorm($('consultaPlaca')?.value||$('placa')?.value||''); const mec=NORM($('consultaMecanico')?.value||''); const qtd=Number($('consultaQtd')?.value||20); let list=[]; if(db){ try{ const docs=await getDocsFromCol(db,'checklists',Math.max(qtd,100)); list=docs; }catch(e){console.warn(e)} } const local=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith('CHECKLIST_ULTIMO_')){try{local.push(JSON.parse(localStorage.getItem(k)))}catch(e){}} } list=list.concat(local).filter(Boolean); if(placa) list=list.filter(x=>placaNorm(x.placa)===placa); if(mec) list=list.filter(x=>NORM(x.responsavel||x.mecanico||x.mecanicoNome||'').includes(mec)); list=list.sort((a,b)=>ts(b.criadoEm||b.createdAt)-ts(a.criadoEm||a.createdAt)).slice(0,qtd); if(!list.length){box.innerHTML='<div class="notice warn">Nenhum checklist encontrado para o filtro.</div>';return;} box.innerHTML=''; list.forEach(x=>{ const d=document.createElement('div'); d.className='consulta-card'; const crit=(x.itens||[]).filter(i=>i.status==='trocar'||i.status==='atencao').length; d.innerHTML=`<b>${esc(x.placa||'-')} • ${esc(x.osRef||'sem O.S.')}</b><small>${fmtDate(ts(x.criadoEm||x.createdAt))} • Responsável: ${esc(x.responsavel||x.mecanico||'-')} • ${crit} crítico(s) • ${x.fotos?.length||0} foto(s)</small><div style="margin-top:8px"><button class="btn small secondary" type="button">Carregar neste aparelho</button></div>`; d.querySelector('button').onclick=()=>{loadChecklistPayload(x); go('screenStart'); toast('Checklist carregado.');}; box.appendChild(d); }); }
+async function consultarChecklists(){ const box=$('consultaLista'); if(!box)return; box.innerHTML='<div class="notice">Pesquisando checklists salvos...</div>'; const db=initFirebase(); const placa=placaNorm($('consultaPlaca')?.value||$('placa')?.value||''); const mec=NORM($('consultaMecanico')?.value||''); const qtd=Number($('consultaQtd')?.value||20); let list=[]; if(db){ try{ const docs=await getDocsFromCol(db,'checklists',Math.max(qtd,100)); list=docs; }catch(e){console.warn(e)} } const local=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith('CHECKLIST_ULTIMO_')){try{local.push(JSON.parse(localStorage.getItem(k)))}catch(e){}} } list=list.concat(local).filter(Boolean); if(placa) list=list.filter(x=>placaNorm(x.placa)===placa); if(mec) list=list.filter(x=>NORM(x.responsavel||x.mecanico||x.mecanicoNome||'').includes(mec)); list=list.sort((a,b)=>ts(b.criadoEm||b.createdAt)-ts(a.criadoEm||a.createdAt)).slice(0,qtd); if(!list.length){box.innerHTML='<div class="notice warn">Nenhum checklist encontrado para o filtro.</div>';return;} box.innerHTML=''; list.forEach(x=>{ const d=document.createElement('div'); d.className='consulta-card'; const crit=(x.itens||[]).filter(i=>i.status==='trocar'||i.status==='atencao').length; d.innerHTML=`<b>${esc(x.placa||'-')} • ${esc(x.osRef||'sem O.S.')}</b><small>${fmtDate(ts(x.criadoEm||x.createdAt))} • Responsável: ${esc(x.responsavel||x.mecanico||'-')} • ${crit} crítico(s) • ${x.fotos?.length||0} foto(s)</small><div style="margin-top:8px;display:grid;grid-template-columns:1fr;gap:6px"><button class="btn small secondary" data-load="1" type="button">Carregar neste aparelho</button>${isGestao()?'<button class="btn small" data-edit="1" type="button">✏️ Editar checklist</button><button class="btn small bad" data-del="1" type="button">🗑️ Excluir checklist</button>':''}</div>`; d.querySelector('[data-load]')?.addEventListener('click',()=>{loadChecklistPayload(x); go('screenStart'); toast('Checklist carregado.');}); d.querySelector('[data-edit]')?.addEventListener('click',()=>{loadChecklistPayload(x); go('screenCheck'); toast('Checklist aberto para edição.');}); d.querySelector('[data-del]')?.addEventListener('click',()=>excluirChecklistSalvo(x)); box.appendChild(d); }); }
 function loadChecklistPayload(p){ if(!p)return; if($('placa'))$('placa').value=p.placa||''; if($('osRef'))$('osRef').value=p.osRef||''; if($('km'))$('km').value=p.km||''; if($('relato'))$('relato').value=p.relato||''; if($('diagnostico'))$('diagnostico').value=p.diagnostico||''; state.selected.clear(); (p.itens||[]).forEach(x=>state.selected.set(x.id,x)); state.photos=p.fotos||[]; state.completedSecoes=new Set(p.secoesConcluidas||[]); state.activeSecId=p.secaoAtiva||''; state.entrega=new Map((p.entrega?.itens||[]).map(x=>[x.itemId||x.id,x])); state.entregaStatus=p.entrega?.status||state.entregaStatus; state.entregaObsFinal=p.entrega?.obsFinal||state.entregaObsFinal; renderSymptoms(); renderGroups(); renderMidia(); renderResumo(); }
-window.CHECKLIST_OFICINIA={state,buscarHistorico,consultarChecklists,novoChecklist,gerarPDF,gerarXLSX,baixarJSON,salvarChecklist,enviarParaOS,abrirChecklistEntrega,salvarChecklistEntrega,anexarEntregaNaOS,gerarPDFEntrega};
+window.CHECKLIST_OFICINIA={state,buscarHistorico,consultarChecklists,novoChecklist,gerarPDF,gerarXLSX,baixarJSON,salvarChecklist,enviarParaOS,abrirChecklistEntrega,salvarChecklistEntrega,anexarEntregaNaOS,gerarPDFEntrega,excluirChecklistSalvo,adicionarItemGestao,gerenciarSecaoGestao,editarItemGestao,excluirItemGestao,alternarObrigatorioGestao,alterarCriticidadeGestao};
 boot();
 })();
