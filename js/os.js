@@ -1889,6 +1889,12 @@ window.prepOS = function(mode, id = null) {
       }
     }
   }
+  // CHECKLIST INTELIGENTE V15.11 — hook cirúrgico para renderizar o checklist técnico
+  // dentro da aba "Provas & Checklist" sempre que a O.S. for aberta/preparada.
+  // Não altera peças, serviços, financeiro, provas Cloudinary ou fluxo de salvamento.
+  setTimeout(() => {
+    try { window.renderChecklistInteligenteOS?.(); } catch (e) { console.warn('[Checklist Inteligente OS] render hook prepOS', e); }
+  }, 220);
   setTimeout(() => window.scrollOSModal?.('top'), 80);
 };
 
@@ -3798,6 +3804,13 @@ if (osId) {
   if (_pecasReais.length > 0 || (oldOSParaAprovacao.pecasReais || []).length > 0) {
     await window.baixarEstoquePecasReais?.(savedOsId, oldOSParaAprovacao.pecasReais || [], _pecasReais);
   }
+
+  // CHECKLIST INTELIGENTE V15.11 — após salvar a O.S., atualiza o bloco do checklist
+  // se o modal permanecer aberto em "Salvar e continuar". O update do Firestore preserva
+  // checklistId/checklistResumo/checklistAtualizadoEm quando estes campos já existem.
+  setTimeout(() => {
+    try { window.renderChecklistInteligenteOS?.(); } catch (e) { console.warn('[Checklist Inteligente OS] render hook salvarOS', e); }
+  }, 350);
 
   if (!window._salvarContinuarOSAtivo && typeof window.fecharModal === 'function') window.fecharModal('modalOS');
   if (window._salvarContinuarOSAtivo) {
