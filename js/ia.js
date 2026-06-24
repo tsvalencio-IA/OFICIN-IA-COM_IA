@@ -278,6 +278,8 @@
     if (/\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q) && /(patio|pátio|entreg|fechad|finaliz|concluid|receb|pagamento|sem receb|sem pagar|abert|abertas|andamento|orcamento|orçamento|triagem|pronto)/.test(q)) {
       return null;
     }
+    const atendimentos = responderAtendimentosFuncionarioPeriodo(texto, q, ctx);
+    if (atendimentos) return atendimentos;
     const notas = responderNotasDetalhadas(texto, q, ctx);
     if (notas) return notas;
     const comissoes = responderComissoesDetalhadas(texto, q, ctx, opts);
@@ -315,17 +317,29 @@
   }
 
   function getJ() {
-    return W.J || {};
+    if (W.J && Object.keys(W.J).length) return W.J;
+    try {
+      if (typeof J !== 'undefined' && J) return J;
+    } catch (_) {}
+    return {};
   }
 
   function dataSets(opts) {
     const J = opts?.J || getJ();
+    let osEquipe = [];
+    let clientesEquipe = [];
+    let veiculosEquipe = [];
+    let estoqueEquipe = [];
+    try { if (typeof dbOS !== 'undefined' && Array.isArray(dbOS)) osEquipe = dbOS; } catch (_) {}
+    try { if (typeof dbClientes !== 'undefined' && Array.isArray(dbClientes)) clientesEquipe = dbClientes; } catch (_) {}
+    try { if (typeof dbVeiculos !== 'undefined' && Array.isArray(dbVeiculos)) veiculosEquipe = dbVeiculos; } catch (_) {}
+    try { if (typeof dbEstoque !== 'undefined' && Array.isArray(dbEstoque)) estoqueEquipe = dbEstoque; } catch (_) {}
     return {
       J,
-      os: Array.isArray(J.os) ? J.os : (Array.isArray(W.dbOS) ? W.dbOS : []),
-      clientes: Array.isArray(J.clientes) ? J.clientes : (Array.isArray(W.dbClientes) ? W.dbClientes : []),
-      veiculos: Array.isArray(J.veiculos) ? J.veiculos : (Array.isArray(W.dbVeiculos) ? W.dbVeiculos : []),
-      estoque: Array.isArray(J.estoque) ? J.estoque : (Array.isArray(W.dbEstoque) ? W.dbEstoque : []),
+      os: Array.isArray(J.os) ? J.os : (Array.isArray(W.dbOS) ? W.dbOS : osEquipe),
+      clientes: Array.isArray(J.clientes) ? J.clientes : (Array.isArray(W.dbClientes) ? W.dbClientes : clientesEquipe),
+      veiculos: Array.isArray(J.veiculos) ? J.veiculos : (Array.isArray(W.dbVeiculos) ? W.dbVeiculos : veiculosEquipe),
+      estoque: Array.isArray(J.estoque) ? J.estoque : (Array.isArray(W.dbEstoque) ? W.dbEstoque : estoqueEquipe),
       financeiro: Array.isArray(J.financeiro) ? J.financeiro : [],
       equipe: Array.isArray(J.equipe) ? J.equipe : [],
       notas: Array.isArray(J.notasFiscaisEntrada) ? J.notasFiscaisEntrada : [],
@@ -345,6 +359,189 @@
 
   function placaLimpa(v) {
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function dataValidaPeriodo(dia, mes, ano) {
+    const d = Number(dia);
+    const m = Number(mes);
+    let a = Number(ano);
+    if (a > 0 && a < 100) a += 2000;
+    if (!a || d < 1 || m < 1 || m > 12) return '';
+    const dt = new Date(a, m - 1, d, 12, 0, 0);
+    if (dt.getFullYear() !== a || dt.getMonth() !== m - 1 || dt.getDate() !== d) return '';
+    return `${a}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  function extrairPeriodoPergunta(texto) {
+    const datas = Array.from(String(texto || '').matchAll(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/g));
+    if (datas.length < 2) return null;
+    const anoAtual = new Date().getFullYear();
+    const anoExplicito = datas.map(m => Number(m[3] || 0)).find(Boolean);
+    let anoInicio = Number(datas[0][3] || anoExplicito || anoAtual);
+    let anoFim = Number(datas[1][3] || anoExplicito || anoAtual);
+    if (anoInicio < 100) anoInicio += 2000;
+    if (anoFim < 100) anoFim += 2000;
+    let inicio = dataValidaPeriodo(datas[0][1], datas[0][2], anoInicio);
+    let fim = dataValidaPeriodo(datas[1][1], datas[1][2], anoFim);
+    if (!inicio || !fim) return null;
+    if (!datas[0][3] && !datas[1][3] && inicio > fim) {
+      anoInicio = anoFim - 1;
+      inicio = dataValidaPeriodo(datas[0][1], datas[0][2], anoInicio);
+    }
+    if (inicio > fim) [inicio, fim] = [fim, inicio];
+    return { inicio, fim };
+  }
+
+  function periodoContem(periodo, valor) {
+    const iso = dataISO(valor);
+    return !!(periodo && iso && iso >= periodo.inicio && iso <= periodo.fim);
+  }
+
+  function funcionarioDaPerguntaOperacional(ctx, texto, q) {
+    const cadastrado = funcionarioPorPergunta(ctx, q);
+    if (cadastrado) return cadastrado;
+    const m = norm(texto).match(/\b(?:mecanico|funcionario|colaborador|responsavel)\s+(.+?)(?=\s+(?:atendeu|atendimentos?|realizou|executou|trabalhou|do\s+dia|entre|de\s+\d|no\s+periodo)|[?,.!]|$)/);
+    const nome = String(m?.[1] || '').replace(/\b(o|a|os|as|do|da|de)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    return nome.length >= 3 ? { id: '', nome, origemHistorica: true } : null;
+  }
+
+  function idsFuncionario(func) {
+    return [func?.id, func?.uid, func?.userId, func?.usuarioId, func?.fid, func?.usuario, func?.login]
+      .map(v => String(v || '').trim())
+      .filter(Boolean);
+  }
+
+  function nomeCombinaFuncionario(valor, func) {
+    const alvo = norm(func?.nome || func?.usuario || func?.apelido || '').trim();
+    const hay = norm(valor).trim();
+    if (!alvo || !hay) return false;
+    if (hay.includes(alvo) || alvo.includes(hay)) return true;
+    const tokens = alvo.split(/\s+/).filter(t => t.length >= 3);
+    return !!tokens.length && tokens.every(t => hay.includes(t));
+  }
+
+  function idCombinaFuncionario(valor, func) {
+    const id = String(valor || '').trim();
+    return !!id && idsFuncionario(func).includes(id);
+  }
+
+  function osAtribuidaFuncionario(os, func) {
+    const ids = [os?.mecId, os?.mecanicoId, os?.responsavelId, os?.funcionarioId, os?.colaboradorId, os?.executorId];
+    if (ids.some(v => idCombinaFuncionario(v, func))) return true;
+    return [os?.mecNome, os?.mecanicoNome, os?.mecanico, os?.responsavelNome, os?.responsavel, os?.executorNome]
+      .some(v => nomeCombinaFuncionario(v, func));
+  }
+
+  function autoriaRegistroFuncionario(registro, func, osAtribuida) {
+    const ids = [
+      registro?.atualizadoPorId, registro?.usuarioId, registro?.mecId, registro?.mecanicoId,
+      registro?.responsavelId, registro?.executorId, registro?.funcionarioId, registro?.colaboradorId
+    ].filter(Boolean);
+    const nomes = [
+      registro?.atualizadoPor, registro?.usuario, registro?.user, registro?.por,
+      registro?.mecNome, registro?.mecanicoNome, registro?.responsavel, registro?.executorNome
+    ].filter(Boolean);
+    if (ids.length || nomes.length) {
+      return ids.some(v => idCombinaFuncionario(v, func)) || nomes.some(v => nomeCombinaFuncionario(v, func));
+    }
+    return osAtribuida;
+  }
+
+  function dataPrincipalOS(os) {
+    return os?.data || os?.dataEntrada || os?.entrada || os?.createdAt || os?.updatedAt || '';
+  }
+
+  function itensOrcamentoParaIA(os) {
+    const U = W.JOS || W.JarvisOSUtils || {};
+    const itens = U.buildBudgetItems?.(os, null);
+    if (Array.isArray(itens) && itens.length) return itens;
+    return (Array.isArray(os?.servicos) ? os.servicos : []).map((s, index) => ({
+      key: `servico-${index}`,
+      tipo: 'servico',
+      desc: s?.desc || s?.descricao || s?.nome || ''
+    }));
+  }
+
+  function servicosFuncionarioNaOS(os, func, periodo) {
+    const atribuida = osAtribuidaFuncionario(os, func);
+    const mapa = new Map(itensOrcamentoParaIA(os).filter(it => norm(it?.tipo).includes('servico')).map(it => [String(it.key || ''), it]));
+    const confirmados = [];
+    Object.entries(os?.execucaoItens || {}).forEach(([key, registro]) => {
+      const status = norm(registro?.status || '');
+      if (!/^(executado|executado obs|concluido|finalizado|feito|realizado)$/.test(status.replace(/[_-]+/g, ' '))) return;
+      const item = mapa.get(String(key)) || {};
+      if (!norm(item?.tipo || registro?.tipo || '').includes('servico')) return;
+      if (!autoriaRegistroFuncionario(registro, func, atribuida)) return;
+      const dataExecucao = registro?.atualizadoEm || registro?.updatedAt || registro?.data || registro?.em || dataPrincipalOS(os);
+      if (!periodoContem(periodo, dataExecucao)) return;
+      const desc = item?.desc || registro?.desc || registro?.descricao || key;
+      if (desc) confirmados.push({ desc, status: registro?.status || 'executado', data: dataISO(dataExecucao) });
+    });
+    const unicosConfirmados = Array.from(new Map(confirmados.map(s => [`${norm(s.desc)}|${s.data}`, s])).values());
+    const registrados = [];
+    if (!unicosConfirmados.length && atribuida && periodoContem(periodo, dataPrincipalOS(os))) {
+      (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => {
+        const desc = s?.desc || s?.descricao || s?.nome || '';
+        if (desc) registrados.push(desc);
+      });
+    }
+    return {
+      confirmados: unicosConfirmados,
+      registrados: uniq(registrados)
+    };
+  }
+
+  function evidenciaAtendimentoFuncionario(os, func, periodo) {
+    const atribuida = osAtribuidaFuncionario(os, func);
+    if (atribuida && periodoContem(periodo, dataPrincipalOS(os))) return true;
+    const execucao = Object.values(os?.execucaoItens || {}).some(registro => {
+      const data = registro?.atualizadoEm || registro?.updatedAt || registro?.data || registro?.em;
+      return autoriaRegistroFuncionario(registro, func, atribuida) && periodoContem(periodo, data);
+    });
+    if (execucao) return true;
+    return (Array.isArray(os?.timeline) ? os.timeline : []).some(evento => {
+      const autor = evento?.user || evento?.usuario || evento?.por || evento?.atualizadoPor || '';
+      const data = evento?.dt || evento?.data || evento?.createdAt || evento?.ts;
+      return nomeCombinaFuncionario(autor, func) && periodoContem(periodo, data);
+    });
+  }
+
+  function responderAtendimentosFuncionarioPeriodo(texto, q, ctx) {
+    const periodo = extrairPeriodoPergunta(texto);
+    if (!periodo) return null;
+    if (!/\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q)) return null;
+    if (!/(atendeu|atendimento|realizou|executou|trabalhou|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens)/.test(q)) return null;
+    const func = funcionarioDaPerguntaOperacional(ctx, texto, q);
+    if (!func) return 'Informe o nome do mec&acirc;nico para consultar os atendimentos por per&iacute;odo.';
+    const lista = ctx.os
+      .filter(os => evidenciaAtendimentoFuncionario(os, func, periodo))
+      .map(os => ({ os, servicos: servicosFuncionarioNaOS(os, func, periodo) }))
+      .sort((a, b) => dataISO(dataPrincipalOS(a.os)).localeCompare(dataISO(dataPrincipalOS(b.os))));
+    const nome = func.nome || func.usuario || func.id || 'mec&acirc;nico';
+    if (!lista.length) {
+      return `N&atilde;o encontrei atendimento de <strong>${esc(nome)}</strong> entre ${esc(dataBR(periodo.inicio))} e ${esc(dataBR(periodo.fim))} nos dados carregados.`;
+    }
+    const veiculosUnicos = new Set(lista.map(({ os }) => os.veiculoId || placaOS(ctx, os) || os.id));
+    const linhas = lista.map(({ os, servicos }) => {
+      const veiculo = veiculoDeOS(ctx, os);
+      const placa = placaOS(ctx, os) || '-';
+      const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
+      const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
+      const data = dataBR(dataPrincipalOS(os));
+      const confirmados = servicos.confirmados.length
+        ? `<br>&nbsp;&nbsp;<strong>Servi&ccedil;os confirmados como executados:</strong> ${servicos.confirmados.map(s => esc(s.desc)).join('; ')}`
+        : '';
+      const legados = servicos.registrados.length
+        ? `<br>&nbsp;&nbsp;<strong>Servi&ccedil;os registrados na O.S. sem confirma&ccedil;&atilde;o individual de execu&ccedil;&atilde;o:</strong> ${servicos.registrados.map(esc).join('; ')}`
+        : (!confirmados ? '<br>&nbsp;&nbsp;Nenhum servi&ccedil;o executado foi identificado nesta O.S.' : '');
+      return `- ${esc(data)} | ${esc(placa)} | ${esc(modelo)} | O.S. #${esc(osNumero)} | ${esc(os.status || '-')}${confirmados}${legados}`;
+    });
+    return [
+      `<strong>Atendimentos de ${esc(nome)} de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}:</strong>`,
+      `${lista.length} O.S. em ${veiculosUnicos.size} ve&iacute;culo(s).`,
+      linhas.join('<br><br>'),
+      '<br><small>Crit&eacute;rio: execu&ccedil;&atilde;o individual confirmada tem prioridade. O.S. legadas sem marca&ccedil;&atilde;o individual s&atilde;o identificadas separadamente para n&atilde;o afirmar servi&ccedil;o sem prova.</small>'
+    ].join('<br>');
   }
 
   function extrairPlaca(txt) {
