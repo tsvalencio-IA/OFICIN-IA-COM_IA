@@ -1221,8 +1221,10 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     </div>
     <div class="form-row cols-3">
       <div class="form-group">
-        <label class="j-label">Mecânico Responsável</label>
-        <select class="j-select" id="osMec"><option value="">Não atribuído</option></select>
+        <label class="j-label">Mecânico principal</label>
+        <select class="j-select" id="osMec" onchange="window.atualizarEquipeMecanicosOS?.()"><option value="">Não atribuído</option></select>
+        <div id="osMecanicosEquipe" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;" aria-label="Mecânicos adicionais da O.S."></div>
+        <small style="display:block;margin-top:5px;color:var(--muted);font-family:var(--fm);font-size:.58rem;">Selecione os adicionais e defina o responsável em cada serviço.</small>
       </div>
       <div class="form-group">
         <label class="j-label">Data de Entrada</label>
@@ -2809,6 +2811,7 @@ window.popularSelects = function() {
 
   const mOpts = '<option value="">Não atribuído</option>' + J.equipe.map(f=>`<option value="${f.id}">${f.nome} (${f.cargo||''})</option>`).join('');
   ['osMec','agdMec'].forEach(id => { if($(id)) $(id).innerHTML = mOpts; });
+  window.renderMecanicosEquipeOS?.();
   if($('vendaVendedor')) $('vendaVendedor').innerHTML = '<option value="">Sem vendedor</option>' + J.equipe.map(f=>`<option value="${f.id}">${f.nome} (${f.cargo||''})</option>`).join('');
 
   if($('nfFornec')) $('nfFornec').innerHTML = '<option value="">Selecione...</option>' + J.fornecedores.map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
@@ -4072,13 +4075,13 @@ window.iaAnalisarEstoque = function() { _jiaChamar('Quais pecas estao em estoque
 <script src="js/fiscal.js"></script>
 <script src="js/financeiro.js"></script>
 <script src="js/nfe-real-pro.js"></script>
-<script src="js/os-utils.js"></script>
-<script src="js/os.js?v=15.11.0"></script>
+<script src="js/os-utils.js?v=15.15.0"></script>
+<script src="js/os.js?v=15.15.0"></script>
 <script src="js/checklist-jarvis-bridge.js?v=15.14.0"></script>
 <script src="js/cotacoes.js"></script>
 <script src="js/valoria-integracao.js"></script>
 <script src="js/assinatura-os.js"></script>
-<script src="js/ia.js"></script>
+<script src="js/ia.js?v=15.15.0"></script>
 <script src="js/ia-externa.js"></script>
 <script src="js/tabela-tempa.js"></script>
 <script src="js/exportar-pmsp.js"></script>

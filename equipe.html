@@ -22,7 +22,7 @@ if ('serviceWorker' in navigator) {
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="js/config.js"></script>
-<script src="js/os-utils.js"></script>
+<script src="js/os-utils.js?v=15.15.0"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -1689,8 +1689,19 @@ document.addEventListener('DOMContentLoaded',()=>{
 // ============================================================
 // KPIs
 // ============================================================
+function osAtribuidaAoUsuarioEquipe(o) {
+  const fid = String(J.fid || '').trim();
+  if (!fid) return false;
+  if (String(o?.mecId || '') === fid) return true;
+  if ((Array.isArray(o?.mecIds) ? o.mecIds : []).some(id => String(id || '') === fid)) return true;
+  if ((Array.isArray(o?.mecanicos) ? o.mecanicos : []).some(m => String(m?.id || m?.mecId || '') === fid)) return true;
+  return (Array.isArray(o?.servicos) ? o.servicos : []).some(s =>
+    String(s?.mecId || s?.mecanicoId || s?.responsavelId || '') === fid
+  );
+}
+
 function renderKPIs(){
-  const minhas = dbOS.filter(o => !o.mecId || o.mecId === J.fid);
+  const minhas = dbOS.filter(o => (!o.mecId && !(o.mecIds || []).length) || osAtribuidaAoUsuarioEquipe(o));
   const ativas = minhas.filter(o => !['Entregue','Cancelado','entregue','cancelado'].includes(o.status));
   if($('kMeusOS')) $('kMeusOS').innerText = ativas.length;
   if($('kEmExec')) $('kEmExec').innerText = minhas.filter(o => o.status === 'Andamento' || o.status === 'EmServico').length;
@@ -1794,6 +1805,7 @@ function filtrarVeics(){
 }
 
 function prepOS(mode,id=null){
+  window._equipeOSAtual = null;
   ['osId','osDesc','osDiag','osKm','osPrisma'].forEach(f=>{if($(f))$(f).value='';});
   $('osMO').value='0'; $('osTipo').value='carro'; $('osStatus').value='Aguardando';
   $('osData').value=new Date().toISOString().split('T')[0];
@@ -1822,6 +1834,7 @@ function prepOS(mode,id=null){
   if (av) av.style.display = 'none';
   if(mode==='edit'&&id){
     const os=dbOS.find(x=>x.id===id); if(!os) return;
+    window._equipeOSAtual = os;
     $('osId').value=os.id; $('osIdBadge').innerText='OS#'+os.id.slice(-5).toUpperCase();
     $('osTipo').value=os.tipoVeiculo||'carro';
     $('osStatus').value=os.status||'Aguardando';
@@ -1887,12 +1900,19 @@ async function salvarExecucaoAprovadosEquipe(osId) {
   rows.forEach(row => {
     const key = row.dataset.key;
     if (!key) return;
+    const mecIdExecucao = row.querySelector('.exec-mec')?.value || row.dataset.mecId || J.fid || '';
+    const mecExecucao = mecanicosEquipeDaOS(osAtual).find(m => String(m.id) === String(mecIdExecucao));
     execucaoItens[key] = {
       key,
       tipo: row.dataset.tipo || '',
       status: row.querySelector('.exec-status')?.value || 'pendente',
       obs: row.querySelector('.exec-obs')?.value || '',
+      mecId: mecIdExecucao,
+      mecNome: mecExecucao?.nome || '',
+      responsavelId: mecIdExecucao,
+      responsavelNome: mecExecucao?.nome || '',
       atualizadoEm: new Date().toISOString(),
+      atualizadoPorId: J.fid || '',
       atualizadoPor: J.nome || 'Equipe',
       atualizadoPorTipo: J.role || 'equipe'
     };
@@ -1940,8 +1960,14 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
       <div style="display:grid;gap:7px;">
         ${aprovados.map(it => {
           const e = exec[it.key] || {};
-          return `<div class="execucao-aprovado-row" data-key="${escExecEquipe(it.key)}" data-tipo="${escExecEquipe(it.tipo)}" style="display:grid;grid-template-columns:minmax(220px,1fr) 190px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
+          const mecIdItem = e.mecId || e.responsavelId || it.mecId || it.responsavelId || os.mecId || '';
+          const podeAlterarMec = ['gerente','gestor','admin','superadmin'].includes(String(J.role || '').toLowerCase());
+          const seletorMec = String(it.tipo || '').toLowerCase().includes('serv')
+            ? `<select class="j-select exec-mec" ${podeAlterarMec ? '' : 'disabled'} style="font-size:.70rem;">${opcoesMecanicoServicoEquipe(mecIdItem, os)}</select>`
+            : '<span></span>';
+          return `<div class="execucao-aprovado-row" data-key="${escExecEquipe(it.key)}" data-tipo="${escExecEquipe(it.tipo)}" data-mec-id="${escExecEquipe(mecIdItem)}" style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,190px) 190px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
             <div style="font-size:.75rem;color:var(--text);"><b>${escExecEquipe(it.labelTipo || it.tipo)}</b> ${it.codigo ? '[' + escExecEquipe(it.codigo) + '] ' : ''}${escExecEquipe(it.desc || '-')}${it.tempo ? `<br><small style="color:var(--muted);">TMO ${String(it.tempo).replace('.', ',')}h</small>` : ''}</div>
+            ${seletorMec}
             <select class="j-select exec-status" style="font-size:.72rem;">${statusOptionsExecEquipe(it.tipo, e.status || 'pendente')}</select>
             <input class="j-input exec-obs" value="${escExecEquipe(e.obs || '')}" placeholder="Observação interna: peça não encontrada, aguardando, executado...">
           </div>`;
@@ -1963,12 +1989,40 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
   if (alvo) alvo.insertAdjacentElement('beforebegin', box);
 }
 
+function mecanicosEquipeDaOS(os) {
+  const mapa = new Map();
+  const adicionar = (id, nome, cargo) => {
+    const chave = String(id || '').trim();
+    if (!chave) return;
+    if (!mapa.has(chave)) mapa.set(chave, { id: chave, nome: nome || chave, cargo: cargo || '' });
+  };
+  (Array.isArray(os?.mecanicos) ? os.mecanicos : []).forEach(m => adicionar(m?.id || m?.mecId, m?.nome || m?.mecNome, m?.cargo));
+  (Array.isArray(os?.mecIds) ? os.mecIds : []).forEach(id => adicionar(id, id, ''));
+  adicionar(os?.mecId, os?.mecNome, '');
+  (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => adicionar(
+    s?.mecId || s?.mecanicoId || s?.responsavelId,
+    s?.mecNome || s?.mecanicoNome || s?.responsavelNome,
+    ''
+  ));
+  adicionar(J.fid, J.nome, J.role);
+  return Array.from(mapa.values());
+}
+
+function opcoesMecanicoServicoEquipe(selectedId, os) {
+  const lista = mecanicosEquipeDaOS(os || window._equipeOSAtual || {});
+  return ['<option value="">Responsável não definido</option>']
+    .concat(lista.map(m => `<option value="${escExecEquipe(m.id)}" ${String(m.id) === String(selectedId || '') ? 'selected' : ''}>${escExecEquipe(m.nome || m.id)}</option>`))
+    .join('');
+}
+
 // ADICIONAR SERVIÇOS (DINÂMICO POR CARGO)
 function adicionarServico(s=null){
   const div=document.createElement('div');
   const podeVerPreco = ['gerente', 'vendedor', 'admin'].includes(J.role);
+  const podeAlterarResponsavel = ['gerente', 'gestor', 'admin', 'superadmin'].includes(String(J.role || '').toLowerCase());
+  const mecIdServico = s?.mecId || s?.mecanicoId || s?.responsavelId || window._equipeOSAtual?.mecId || J.fid || '';
   
-  div.style.cssText='display:flex;gap:7px;align-items:center;position:relative;';
+  div.style.cssText='display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,190px) auto auto;gap:7px;align-items:center;position:relative;';
   const uid = 'sv_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
   
   const inputValor = podeVerPreco 
@@ -1976,8 +2030,11 @@ function adicionarServico(s=null){
     : `<input type="hidden" class="serv-valor" value="${s?s.valor:0}">`;
 
   div.innerHTML=`
-    <input type="text" class="j-input serv-desc" id="${uid}" placeholder="Descreva o serviço..." value="${s?s.desc:''}" style="flex:1;padding-right:40px;">
-    <button type="button" class="btn-voice" style="position:absolute;right:${podeVerPreco ? '100px' : '38px'};top:50%;transform:translateY(-50%);" onclick="iniciarVoz('${uid}',this)" title="Falar serviço">🎙️</button>
+    <div style="position:relative;min-width:0;">
+      <input type="text" class="j-input serv-desc" id="${uid}" placeholder="Descreva o serviço..." value="${s?s.desc:''}" style="width:100%;padding-right:40px;">
+      <button type="button" class="btn-voice" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);" onclick="iniciarVoz('${uid}',this)" title="Falar serviço">🎙️</button>
+    </div>
+    <select class="j-select serv-mec" ${podeAlterarResponsavel ? '' : 'disabled'} title="Mecânico responsável pelo serviço">${opcoesMecanicoServicoEquipe(mecIdServico, window._equipeOSAtual)}</select>
     ${inputValor}
     <button type="button" onclick="this.parentElement.remove()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:34px;font-size:10px;flex-shrink:0;">✕</button>
   `;
@@ -2064,7 +2121,16 @@ async function salvarOS(){
   document.querySelectorAll('#containerServicos>div').forEach(r=>{
     const desc=r.querySelector('.serv-desc')?.value||'';
     const valor=parseBR(r.querySelector('.serv-valor')?.value||0);
-    if(desc) servicos.push({desc, valor});
+    const mecId = r.querySelector('.serv-mec')?.value || '';
+    const mec = mecanicosEquipeDaOS(window._equipeOSAtual || {}).find(m => String(m.id) === String(mecId));
+    if(desc) servicos.push({
+      desc,
+      valor,
+      mecId,
+      mecNome: mec?.nome || '',
+      responsavelId: mecId,
+      responsavelNome: mec?.nome || ''
+    });
   });
 
   // O Total é recalculado secretamente para não perder a integridade dos dados no Firebase
@@ -2073,6 +2139,7 @@ async function salvarOS(){
   servicos.forEach(s => t += s.valor);
 
   const id = $v('osId');
+  const osBaseEquipe = id ? (dbOS.find(x => x.id === id) || {}) : {};
   const prismaInformadoOS = ($v('osPrisma') || '').trim();
   const funcUser = J.nome || 'Mecânico';
   let tl = [];
@@ -2179,9 +2246,25 @@ async function salvarOS(){
   }
   // --- FIM: DEEP DIFF ---
   
+  const mecIdPrincipalEquipe = osBaseEquipe.mecId || J.fid;
+  const mecIdsEquipe = Array.from(new Set([
+    mecIdPrincipalEquipe,
+    ...(Array.isArray(osBaseEquipe.mecIds) ? osBaseEquipe.mecIds : []),
+    ...servicos.map(s => s.mecId)
+  ].map(v => String(v || '').trim()).filter(Boolean)));
+  const mecanicosEquipe = mecanicosEquipeDaOS({
+    ...osBaseEquipe,
+    mecId: mecIdPrincipalEquipe,
+    mecIds: mecIdsEquipe,
+    servicos
+  }).filter(m => mecIdsEquipe.includes(String(m.id)));
   const p={
     tenantId:J.tid,tipoVeiculo:$v('osTipo'),clienteId:$v('osCliente'),veiculoId:$v('osVeiculo'),
-    mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),
+    mecId:mecIdPrincipalEquipe,
+    mecNome:osBaseEquipe.mecNome || mecanicosEquipe.find(m => String(m.id) === String(mecIdPrincipalEquipe))?.nome || J.nome,
+    mecIds:mecIdsEquipe,
+    mecanicos:mecanicosEquipe,
+    data:$v('osData'),km:$v('osKm'),
     prisma: prismaInformadoOS,
     numeroPrisma: prismaInformadoOS,
     desc:$v('osDesc'),diagnostico:$v('osDiag'),status:$v('osStatus'),
@@ -2591,10 +2674,8 @@ function aplicarSugestaoIA() {
 <script src="js/final-1010-regras-os.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/hardening-comercial.js"></script>
-<script src="js/ia.js"></script>
+<script src="js/ia.js?v=15.15.0"></script>
 <script src="js/ia-externa.js"></script>
 <script src="js/uix-theme-fix.js"></script>
 </body>
 </html>
-
-

@@ -97,16 +97,23 @@
 
   function funcionarioPorPergunta(ctx, q) {
     const equipe = Array.isArray(ctx.equipe) ? ctx.equipe : [];
-    const termosQ = norm(q).split(/\s+/).filter(t => t.length >= 3 && !/comiss|comissao|comissoes|pagar|pagas|pago|pendente|funcionario|mecanico|colaborador|para|do|da|de|com|financeiro/.test(t));
+    const pergunta = norm(q);
+    const termosQ = pergunta.split(/\s+/).filter(t => t.length >= 3 && !/comiss|comissao|comissoes|pagar|pagas|pago|pendente|funcionario|mecanico|colaborador|para|do|da|de|com|financeiro/.test(t));
     let melhor = null;
     let melhorScore = 0;
     equipe.forEach(f => {
       const nome = norm(funcionarioTexto(f));
       if (!nome) return;
       let score = 0;
+      const aliases = [f.nome, f.usuario, f.apelido, f.login]
+        .map(v => norm(v).trim())
+        .filter(Boolean);
+      aliases.forEach(alias => {
+        if (pergunta.includes(alias)) score += 1000 + alias.length;
+      });
       termosQ.forEach(t => { if (nome.includes(t)) score += t.length; });
       const nomeTokens = norm(f.nome || '').split(/\s+/).filter(Boolean);
-      nomeTokens.forEach(t => { if (t.length >= 3 && norm(q).includes(t)) score += t.length + 2; });
+      nomeTokens.forEach(t => { if (t.length >= 3 && pergunta.includes(t)) score += t.length + 2; });
       if (score > melhorScore) { melhor = f; melhorScore = score; }
     });
     return melhorScore >= 3 ? melhor : null;
@@ -278,7 +285,7 @@
     if (/\b(o\.?s\.?|os|ordem|ordens|veiculo|veiculos|patio|pátio)\b/.test(q) && /(patio|pátio|entreg|fechad|finaliz|concluid|receb|pagamento|sem receb|sem pagar|abert|abertas|andamento|orcamento|orçamento|triagem|pronto)/.test(q)) {
       return null;
     }
-    const atendimentos = responderAtendimentosFuncionarioPeriodo(texto, q, ctx);
+    const atendimentos = responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts);
     if (atendimentos) return atendimentos;
     const notas = responderNotasDetalhadas(texto, q, ctx);
     if (notas) return notas;
@@ -417,7 +424,7 @@
     if (!alvo || !hay) return false;
     if (hay.includes(alvo) || alvo.includes(hay)) return true;
     const tokens = alvo.split(/\s+/).filter(t => t.length >= 3);
-    return !!tokens.length && tokens.every(t => hay.includes(t));
+    return tokens.length >= 2 && tokens.every(t => hay.includes(t));
   }
 
   function idCombinaFuncionario(valor, func) {
@@ -426,10 +433,33 @@
   }
 
   function osAtribuidaFuncionario(os, func) {
-    const ids = [os?.mecId, os?.mecanicoId, os?.responsavelId, os?.funcionarioId, os?.colaboradorId, os?.executorId];
+    const ids = [
+      os?.mecId, os?.mecanicoId, os?.responsavelId, os?.funcionarioId, os?.colaboradorId, os?.executorId,
+      ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
+      ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : []),
+      ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecId || s?.mecanicoId || s?.responsavelId) : [])
+    ];
     if (ids.some(v => idCombinaFuncionario(v, func))) return true;
-    return [os?.mecNome, os?.mecanicoNome, os?.mecanico, os?.responsavelNome, os?.responsavel, os?.executorNome]
+    return [
+      os?.mecNome, os?.mecanicoNome, os?.mecanico, os?.responsavelNome, os?.responsavel, os?.executorNome,
+      ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.nome || m?.mecNome) : []),
+      ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecNome || s?.mecanicoNome || s?.responsavelNome) : [])
+    ]
       .some(v => nomeCombinaFuncionario(v, func));
+  }
+
+  function itemPertenceFuncionario(item, func, os) {
+    const itemIds = [item?.mecId, item?.mecanicoId, item?.responsavelId].filter(Boolean);
+    const itemNomes = [item?.mecNome, item?.mecanicoNome, item?.responsavelNome].filter(Boolean);
+    if (itemIds.length || itemNomes.length) {
+      return itemIds.some(v => idCombinaFuncionario(v, func)) || itemNomes.some(v => nomeCombinaFuncionario(v, func));
+    }
+    const idsOS = [
+      os?.mecId,
+      ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
+      ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : [])
+    ].filter(Boolean);
+    return idsOS.length <= 1 && osAtribuidaFuncionario(os, func);
   }
 
   function autoriaRegistroFuncionario(registro, func, osAtribuida) {
@@ -451,20 +481,35 @@
     return os?.data || os?.dataEntrada || os?.entrada || os?.createdAt || os?.updatedAt || '';
   }
 
-  function itensOrcamentoParaIA(os) {
+  function itensOrcamentoParaIA(os, ctx) {
     const U = W.JOS || W.JarvisOSUtils || {};
-    const itens = U.buildBudgetItems?.(os, null);
+    const cliente = (Array.isArray(ctx?.clientes) ? ctx.clientes : []).find(c => c.id === os?.clienteId) || null;
+    const itens = U.buildBudgetItems?.(os, cliente);
     if (Array.isArray(itens) && itens.length) return itens;
     return (Array.isArray(os?.servicos) ? os.servicos : []).map((s, index) => ({
       key: `servico-${index}`,
       tipo: 'servico',
-      desc: s?.desc || s?.descricao || s?.nome || ''
+      desc: s?.desc || s?.descricao || s?.nome || '',
+      valorFinal: num(s?.valorFinal ?? s?.total ?? s?.valor ?? s?.valorBruto ?? 0),
+      mecId: s?.mecId || s?.mecanicoId || s?.responsavelId || '',
+      mecNome: s?.mecNome || s?.mecanicoNome || s?.responsavelNome || ''
     }));
   }
 
-  function servicosFuncionarioNaOS(os, func, periodo) {
+  function osFinalizadaParaComissao(os) {
+    const status = norm(os?.status || '').replace(/[_-]+/g, ' ');
+    return /\b(pronto|entregue|concluido|finalizado|faturado|pronto retirada)\b/.test(status);
+  }
+
+  function somarValoresServicos(lista) {
+    return +((Array.isArray(lista) ? lista : []).reduce((soma, item) => soma + num(item?.valor), 0)).toFixed(2);
+  }
+
+  function servicosFuncionarioNaOS(os, func, periodo, ctx) {
     const atribuida = osAtribuidaFuncionario(os, func);
-    const mapa = new Map(itensOrcamentoParaIA(os).filter(it => norm(it?.tipo).includes('servico')).map(it => [String(it.key || ''), it]));
+    const U = W.JOS || W.JarvisOSUtils || {};
+    const itensServico = itensOrcamentoParaIA(os, ctx).filter(it => norm(it?.tipo).includes('servico'));
+    const mapa = new Map(itensServico.map(it => [String(it.key || ''), it]));
     const confirmados = [];
     Object.entries(os?.execucaoItens || {}).forEach(([key, registro]) => {
       const status = norm(registro?.status || '');
@@ -472,22 +517,51 @@
       const item = mapa.get(String(key)) || {};
       if (!norm(item?.tipo || registro?.tipo || '').includes('servico')) return;
       if (!autoriaRegistroFuncionario(registro, func, atribuida)) return;
+      if (!itemPertenceFuncionario(Object.assign({}, item, {
+        mecId: registro?.mecId || registro?.responsavelId || item?.mecId,
+        mecNome: registro?.mecNome || registro?.responsavelNome || item?.mecNome
+      }), func, os)) return;
       const dataExecucao = registro?.atualizadoEm || registro?.updatedAt || registro?.data || registro?.em || dataPrincipalOS(os);
       if (!periodoContem(periodo, dataExecucao)) return;
       const desc = item?.desc || registro?.desc || registro?.descricao || key;
-      if (desc) confirmados.push({ desc, status: registro?.status || 'executado', data: dataISO(dataExecucao) });
+      if (desc) {
+        confirmados.push({
+          key: String(key),
+          desc,
+          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? registro?.valor ?? 0),
+          status: registro?.status || 'executado',
+          data: dataISO(dataExecucao)
+        });
+      }
     });
-    const unicosConfirmados = Array.from(new Map(confirmados.map(s => [`${norm(s.desc)}|${s.data}`, s])).values());
+    const unicosConfirmados = Array.from(new Map(confirmados.map(s => [`${s.key}|${s.data}`, s])).values());
     const registrados = [];
     if (!unicosConfirmados.length && atribuida && periodoContem(periodo, dataPrincipalOS(os))) {
-      (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => {
-        const desc = s?.desc || s?.descricao || s?.nome || '';
-        if (desc) registrados.push(desc);
+      const temAprovacao = typeof U.hasApproval === 'function'
+        ? U.hasApproval(os)
+        : !!((os?.aprovacao && Array.isArray(os.aprovacao.itens)) || Array.isArray(os?.itensAprovados));
+      const aprovados = typeof U.getApprovedKeys === 'function'
+        ? U.getApprovedKeys(os)
+        : new Set((os?.itensAprovados || []).map(item => typeof item === 'string' ? item : item?.key).filter(Boolean));
+      itensServico.forEach(item => {
+        if (temAprovacao && !aprovados.has(item.key)) return;
+        if (!itemPertenceFuncionario(item, func, os)) return;
+        const desc = item?.desc || '';
+        if (!desc) return;
+        registrados.push({
+          key: String(item.key || ''),
+          desc,
+          valor: num(item?.valorFinal ?? item?.total ?? item?.valorBruto ?? item?.valorUnit ?? 0)
+        });
       });
     }
+    const legadoFinalizado = !unicosConfirmados.length && registrados.length > 0 && osFinalizadaParaComissao(os);
     return {
       confirmados: unicosConfirmados,
-      registrados: uniq(registrados)
+      registrados,
+      legadoFinalizado,
+      totalConfirmado: somarValoresServicos(unicosConfirmados),
+      totalRegistrado: somarValoresServicos(registrados)
     };
   }
 
@@ -506,22 +580,26 @@
     });
   }
 
-  function responderAtendimentosFuncionarioPeriodo(texto, q, ctx) {
+  function responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts) {
     const periodo = extrairPeriodoPergunta(texto);
     if (!periodo) return null;
     if (!/\b(mecanico|funcionario|colaborador|responsavel)\b/.test(q)) return null;
-    if (!/(atendeu|atendimento|realizou|executou|trabalhou|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens)/.test(q)) return null;
+    if (!/(atendeu|atendimento|realizou|executou|trabalhou|servico|servicos|veiculo|veiculos|o\.?s\.?|ordem|ordens|comiss|relatorio|valor|valores|total)/.test(q)) return null;
     const func = funcionarioDaPerguntaOperacional(ctx, texto, q);
     if (!func) return 'Informe o nome do mec&acirc;nico para consultar os atendimentos por per&iacute;odo.';
     const lista = ctx.os
       .filter(os => evidenciaAtendimentoFuncionario(os, func, periodo))
-      .map(os => ({ os, servicos: servicosFuncionarioNaOS(os, func, periodo) }))
+      .map(os => ({ os, servicos: servicosFuncionarioNaOS(os, func, periodo, ctx) }))
       .sort((a, b) => dataISO(dataPrincipalOS(a.os)).localeCompare(dataISO(dataPrincipalOS(b.os))));
     const nome = func.nome || func.usuario || func.id || 'mec&acirc;nico';
     if (!lista.length) {
       return `N&atilde;o encontrei atendimento de <strong>${esc(nome)}</strong> entre ${esc(dataBR(periodo.inicio))} e ${esc(dataBR(periodo.fim))} nos dados carregados.`;
     }
     const veiculosUnicos = new Set(lista.map(({ os }) => os.veiculoId || placaOS(ctx, os) || os.id));
+    const podeVerValores = podeFinanceiro(opts);
+    const percentualRaw = func?.comissaoServico ?? func?.comissao;
+    const percentualCadastrado = percentualRaw != null && String(percentualRaw).trim() !== '';
+    const percentualComissao = percentualCadastrado ? num(percentualRaw) : null;
     const linhas = lista.map(({ os, servicos }) => {
       const veiculo = veiculoDeOS(ctx, os);
       const placa = placaOS(ctx, os) || '-';
@@ -529,17 +607,58 @@
       const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
       const data = dataBR(dataPrincipalOS(os));
       const confirmados = servicos.confirmados.length
-        ? `<br>&nbsp;&nbsp;<strong>Servi&ccedil;os confirmados como executados:</strong> ${servicos.confirmados.map(s => esc(s.desc)).join('; ')}`
+        ? [
+            '<br>&nbsp;&nbsp;<strong>Servi&ccedil;os confirmados como executados:</strong>',
+            servicos.confirmados.map(s => `<br>&nbsp;&nbsp;- ${esc(s.desc)}${podeVerValores ? `: <strong>${moeda(s.valor)}</strong>` : ''}`).join(''),
+            podeVerValores ? `<br>&nbsp;&nbsp;<strong>Subtotal confirmado da O.S.: ${moeda(servicos.totalConfirmado)}</strong>` : ''
+          ].join('')
         : '';
       const legados = servicos.registrados.length
-        ? `<br>&nbsp;&nbsp;<strong>Servi&ccedil;os registrados na O.S. sem confirma&ccedil;&atilde;o individual de execu&ccedil;&atilde;o:</strong> ${servicos.registrados.map(esc).join('; ')}`
+        ? [
+            `<br>&nbsp;&nbsp;<strong>${servicos.legadoFinalizado
+              ? 'Servi&ccedil;os de O.S. finalizada sem confirma&ccedil;&atilde;o individual (regra legada):'
+              : 'Servi&ccedil;os somente registrados/or&ccedil;ados, fora da base de comiss&atilde;o:'}</strong>`,
+            servicos.registrados.map(s => `<br>&nbsp;&nbsp;- ${esc(s.desc)}${podeVerValores ? `: <strong>${moeda(s.valor)}</strong>` : ''}`).join(''),
+            podeVerValores
+              ? `<br>&nbsp;&nbsp;<strong>Subtotal ${servicos.legadoFinalizado ? 'legado finalizado' : 'informativo'} da O.S.: ${moeda(servicos.totalRegistrado)}</strong>`
+              : ''
+          ].join('')
         : (!confirmados ? '<br>&nbsp;&nbsp;Nenhum servi&ccedil;o executado foi identificado nesta O.S.' : '');
       return `- ${esc(data)} | ${esc(placa)} | ${esc(modelo)} | O.S. #${esc(osNumero)} | ${esc(os.status || '-')}${confirmados}${legados}`;
     });
+    const totalConfirmado = +lista.reduce((soma, item) => soma + num(item.servicos.totalConfirmado), 0).toFixed(2);
+    const totalLegadoFinalizado = +lista
+      .filter(item => item.servicos.legadoFinalizado)
+      .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
+      .toFixed(2);
+    const totalSomenteOrcado = +lista
+      .filter(item => !item.servicos.legadoFinalizado)
+      .reduce((soma, item) => soma + num(item.servicos.totalRegistrado), 0)
+      .toFixed(2);
+    const baseComissao = +(totalConfirmado + totalLegadoFinalizado).toFixed(2);
+    const valorComissao = percentualComissao == null
+      ? null
+      : +(baseComissao * (percentualComissao / 100)).toFixed(2);
+    const resumoComissao = podeVerValores ? [
+      '<br><strong>Resumo para comiss&atilde;o:</strong>',
+      `<br>- M&atilde;o de obra com execu&ccedil;&atilde;o confirmada: <strong>${moeda(totalConfirmado)}</strong>`,
+      `<br>- M&atilde;o de obra de O.S. finalizada legada: <strong>${moeda(totalLegadoFinalizado)}</strong>`,
+      `<br>- Base total considerada para comiss&atilde;o: <strong>${moeda(baseComissao)}</strong>`,
+      totalSomenteOrcado > 0
+        ? `<br>- Servi&ccedil;os apenas or&ccedil;ados/sem finaliza&ccedil;&atilde;o, exclu&iacute;dos da comiss&atilde;o: <strong>${moeda(totalSomenteOrcado)}</strong>`
+        : '',
+      percentualComissao == null
+        ? '<br>- Percentual de comiss&atilde;o: <strong>n&atilde;o localizado no cadastro do colaborador</strong>'
+        : `<br>- Percentual de comiss&atilde;o sobre m&atilde;o de obra: <strong>${esc(percentualComissao.toLocaleString('pt-BR'))}%</strong>`,
+      valorComissao == null
+        ? '<br>- Comiss&atilde;o a pagar: <strong>n&atilde;o calculada; cadastre o percentual do colaborador</strong>'
+        : `<br>- Comiss&atilde;o calculada: <strong>${moeda(valorComissao)}</strong>`
+    ].join('') : '';
     return [
       `<strong>Atendimentos de ${esc(nome)} de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}:</strong>`,
       `${lista.length} O.S. em ${veiculosUnicos.size} ve&iacute;culo(s).`,
       linhas.join('<br><br>'),
+      resumoComissao,
       '<br><small>Crit&eacute;rio: execu&ccedil;&atilde;o individual confirmada tem prioridade. O.S. legadas sem marca&ccedil;&atilde;o individual s&atilde;o identificadas separadamente para n&atilde;o afirmar servi&ccedil;o sem prova.</small>'
     ].join('<br>');
   }

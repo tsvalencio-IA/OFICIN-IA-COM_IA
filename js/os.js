@@ -1658,6 +1658,111 @@ async function salvarBlobArquivoOS(blob, fileName, mimeType) {
 }
 window.salvarBlobArquivoOS = salvarBlobArquivoOS;
 
+function idsUnicosMecanicosOS(valores) {
+  return Array.from(new Set((valores || []).map(v => String(v || '').trim()).filter(Boolean)));
+}
+
+function idsMecanicosDocumentoOS(os) {
+  return idsUnicosMecanicosOS([
+    os?.mecId,
+    ...(Array.isArray(os?.mecIds) ? os.mecIds : []),
+    ...(Array.isArray(os?.mecanicos) ? os.mecanicos.map(m => m?.id || m?.mecId) : []),
+    ...(Array.isArray(os?.servicos) ? os.servicos.map(s => s?.mecId || s?.mecanicoId || s?.responsavelId) : [])
+  ]);
+}
+
+function snapshotMecanicoOS(id, origem) {
+  const mec = (window.J?.equipe || []).find(f => String(f.id) === String(id));
+  const salvo = (Array.isArray(origem?.mecanicos) ? origem.mecanicos : [])
+    .find(f => String(f?.id || f?.mecId) === String(id));
+  const base = mec || salvo || {};
+  return {
+    id: String(base.id || base.mecId || id || ''),
+    nome: base.nome || base.usuario || base.mecNome || '',
+    cargo: base.cargo || '',
+    comissaoServico: numBR(base.comissaoServico ?? base.comissao ?? 0),
+    comissaoPeca: numBR(base.comissaoPeca || 0)
+  };
+}
+
+window.obterMecanicosSelecionadosOS = function() {
+  const ids = [];
+  const principal = document.getElementById('osMec')?.value || '';
+  if (principal) ids.push(principal);
+  document.querySelectorAll('#osMecanicosEquipe input[type="checkbox"]:checked').forEach(chk => ids.push(chk.value));
+  document.querySelectorAll('#containerServicosOS .serv-mec, #containerPecasOS .cilia-serv-relac .serv-mec').forEach(sel => {
+    if (sel.value) ids.push(sel.value);
+  });
+  return idsUnicosMecanicosOS(ids);
+};
+
+window.renderMecanicosEquipeOS = function(selectedIds) {
+  const box = document.getElementById('osMecanicosEquipe');
+  if (!box) return;
+  const principal = document.getElementById('osMec')?.value || '';
+  const atuais = selectedIds === undefined ? window.obterMecanicosSelecionadosOS() : idsUnicosMecanicosOS(selectedIds);
+  const selecionados = new Set(idsUnicosMecanicosOS([principal, ...atuais]));
+  const equipe = Array.isArray(window.J?.equipe) ? window.J.equipe : [];
+  box.innerHTML = equipe
+    .filter(f => String(f.id) !== String(principal))
+    .map(f => {
+      const checked = selecionados.has(String(f.id)) ? 'checked' : '';
+      return `<label style="display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(0,212,255,.22);background:rgba(0,212,255,.06);padding:5px 7px;border-radius:3px;font-family:var(--fm);font-size:.62rem;color:var(--text);cursor:pointer;">
+        <input type="checkbox" value="${escOS(f.id)}" ${checked} onchange="window.atualizarResponsaveisServicoOS?.()"> ${escOS(f.nome || f.usuario || f.id)}
+      </label>`;
+    }).join('') || '<span style="font-family:var(--fm);font-size:.60rem;color:var(--muted);">Nenhum mecânico adicional cadastrado.</span>';
+};
+
+function opcoesResponsavelServicoOS(selectedId) {
+  let ids = window.obterMecanicosSelecionadosOS();
+  if (!ids.length) ids = (window.J?.equipe || []).map(f => f.id);
+  if (selectedId) ids = idsUnicosMecanicosOS([...ids, selectedId]);
+  const opcoes = ['<option value="">Responsável não definido</option>'];
+  ids.forEach(id => {
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(id));
+    opcoes.push(`<option value="${escOS(id)}" ${String(id) === String(selectedId || '') ? 'selected' : ''}>${escOS(mec?.nome || mec?.usuario || id)}</option>`);
+  });
+  return opcoes.join('');
+}
+
+window.garantirResponsavelLinhaServicoOS = function(row, selectedId) {
+  if (!row?.querySelector?.('.serv-desc')) return;
+  const idAtual = selectedId || row.dataset?.mecId || row.querySelector('.serv-mec')?.value || '';
+  let wrap = row.querySelector('.serv-mec-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.className = 'serv-mec-wrap';
+    wrap.style.cssText = 'grid-column:1/-1;display:grid;grid-template-columns:minmax(145px,220px) minmax(180px,1fr);gap:7px;align-items:center;';
+    wrap.innerHTML = '<label style="font-family:var(--fm);font-size:.60rem;color:var(--muted);letter-spacing:.6px;">MECÂNICO RESPONSÁVEL</label><select class="j-select serv-mec" style="font-size:.70rem;"></select>';
+    row.appendChild(wrap);
+  }
+  const select = wrap.querySelector('.serv-mec');
+  select.innerHTML = opcoesResponsavelServicoOS(idAtual);
+  select.value = idAtual;
+  select.onchange = function() {
+    row.dataset.mecId = this.value || '';
+    const mec = (window.J?.equipe || []).find(f => String(f.id) === String(this.value));
+    row.dataset.mecNome = mec?.nome || '';
+    const adicional = Array.from(document.querySelectorAll('#osMecanicosEquipe input[type="checkbox"]'))
+      .find(chk => String(chk.value) === String(this.value || ''));
+    if (adicional && this.value) adicional.checked = true;
+  };
+  row.dataset.mecId = select.value || '';
+  const mec = (window.J?.equipe || []).find(f => String(f.id) === String(select.value));
+  row.dataset.mecNome = mec?.nome || row.dataset?.mecNome || '';
+};
+
+window.atualizarResponsaveisServicoOS = function() {
+  document.querySelectorAll('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac').forEach(row => {
+    window.garantirResponsavelLinhaServicoOS(row, row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '');
+  });
+};
+
+window.atualizarEquipeMecanicosOS = function() {
+  window.renderMecanicosEquipeOS();
+  window.atualizarResponsaveisServicoOS();
+};
+
 
 window.prepOS = function(mode, id = null) {
   ['osId', 'osPlaca', 'osPlacaView', 'osPrefixo', 'osVeiculo', 'osCliente', 'osCelular', 'osCpf', 'osDiagnostico', 'osRelato', 'osDescricao', 'chkObs', 'osKm', 'osData', 'osPrisma'].forEach(f => { if ($(f)) $(f).value = ''; });
@@ -1669,6 +1774,7 @@ window.prepOS = function(mode, id = null) {
   
   if ($('osStatus')) $('osStatus').value = 'Triagem';
   if ($('osTipoVeiculo')) $('osTipoVeiculo').value = '';
+  if ($('osMec')) $('osMec').value = '';
   if ($('osData')) $('osData').value = dataLocalISOOS();
   if ($('containerItensOS')) $('containerItensOS').innerHTML = '';
   if ($('containerServicosOS')) $('containerServicosOS').innerHTML = '';
@@ -1707,6 +1813,7 @@ window.prepOS = function(mode, id = null) {
   if (typeof window.limparOsMediaPreview === 'function') window.limparOsMediaPreview();
 
   if (typeof window.popularSelects === 'function') window.popularSelects();
+  window.renderMecanicosEquipeOS?.([]);
 
   if (mode === 'add') { 
       if(typeof window.adicionarServicoOS === 'function') window.adicionarServicoOS();
@@ -1735,7 +1842,8 @@ window.prepOS = function(mode, id = null) {
       window.atualizarIdentificacaoVeiculoOS?.(o);
     }, 100);
 
-    if ($('osMec')) $('osMec').value = o.mecId || ''; 
+    if ($('osMec')) $('osMec').value = o.mecId || idsMecanicosDocumentoOS(o)[0] || '';
+    window.renderMecanicosEquipeOS?.(idsMecanicosDocumentoOS(o));
     if ($('osCelular')) $('osCelular').value = o.celular || '';
     if ($('osCpf')) $('osCpf').value = o.cpf || '';
     if ($('osStatus')) $('osStatus').value = STATUS_MAP_LEGACY[o.status] || o.status || 'Triagem';
@@ -1823,6 +1931,7 @@ window.prepOS = function(mode, id = null) {
             }
         });
     }
+    window.atualizarResponsaveisServicoOS?.();
 
     if (typeof window.aplicarMarcadoresAprovacaoOS === 'function') {
       window.aplicarMarcadoresAprovacaoOS(o);
@@ -2074,6 +2183,10 @@ function dadosServicoLinhaOS(row) {
     valorManual: row?.dataset?.valorManual === '1' ? '1' : '',
     valorHoraManual: row?.dataset?.valorHoraManual === '1' ? '1' : '',
     tempaManual: row?.dataset?.tempaManual === '1',
+    mecId: row?.querySelector?.('.serv-mec')?.value || row?.dataset?.mecId || '',
+    mecNome: row?.dataset?.mecNome || '',
+    responsavelId: row?.querySelector?.('.serv-mec')?.value || row?.dataset?.mecId || '',
+    responsavelNome: row?.dataset?.mecNome || '',
     relacionadoCilia: row?.dataset?.servRelacionado === '1',
     origemServico: row?.dataset?.servRelacionado === '1'
       ? ((row?.dataset?.codigoTabela || '') ? (row?.dataset?.tempaManual === '1' ? 'cilia_tabela_tempa_editado' : 'cilia_tabela_tempa') : 'cilia_manual')
@@ -2143,10 +2256,13 @@ window.adicionarServicoOS = function() {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(sel);
+  window.garantirResponsavelLinhaServicoOS?.(sel, '');
 };
 
 window.renderServicoOSRow = function(s) {
   const div = document.createElement('div');
+  div.dataset.mecId = s.mecId || s.mecanicoId || s.responsavelId || '';
+  div.dataset.mecNome = s.mecNome || s.mecanicoNome || s.responsavelNome || '';
   div.dataset.codigoInterno = s.codigoInterno || s.codInterno || s.codigoServicoInterno || '';
   div.dataset.codigoTabela = s.codigoTabela || s.codigo || '';
   div.dataset.sistemaTabela = s.sistemaTabela || s.sistema || '';
@@ -2201,6 +2317,7 @@ window.renderServicoOSRow = function(s) {
     `;
   }
   if($('containerServicosOS')) $('containerServicosOS').appendChild(div);
+  window.garantirResponsavelLinhaServicoOS?.(div, div.dataset.mecId || '');
   atualizarMetaServicoLinhaOS(div);
 };
 
@@ -2863,6 +2980,159 @@ window.checkPgtoOS = function() {
   aplicarRegraParcelasPagamentoOS();
 };
 
+function statusExecucaoComissaoOS(status) {
+  return /^(executado|executado_obs|concluido|finalizado|feito|realizado|trocada)$/i.test(String(status || '').trim());
+}
+
+function calcularComissoesPorMecanicoOS(payload, totalPecasFallback) {
+  const U = OSU();
+  const cliente = (window.J?.clientes || []).find(c => c.id === payload?.clienteId);
+  const itens = U.buildBudgetItems?.(payload, cliente) || [];
+  const temAprovacao = U.hasApproval?.(payload);
+  const aprovados = U.getApprovedKeys?.(payload) || new Set();
+  const execucao = payload?.execucaoItens || {};
+  const temExecucaoServico = Object.entries(execucao).some(([key, registro]) =>
+    String(key).startsWith('servico-') && registro && String(registro.status || '').trim()
+  );
+  const mapa = new Map();
+  const garantir = id => {
+    const mecId = String(id || '').trim();
+    if (!mecId) return null;
+    if (!mapa.has(mecId)) {
+      mapa.set(mecId, { mecId, mec: snapshotMecanicoOS(mecId, payload), baseServico: 0, basePecas: 0, servicos: [] });
+    }
+    return mapa.get(mecId);
+  };
+
+  itens.filter(item => item.tipo === 'servico').forEach(item => {
+    if (temAprovacao && !aprovados.has(item.key)) return;
+    const registro = execucao[item.key] || {};
+    if (temExecucaoServico && !statusExecucaoComissaoOS(registro.status)) return;
+    const mecId = registro.mecId || registro.responsavelId || item.mecId || item.responsavelId || payload.mecId || '';
+    const grupo = garantir(mecId);
+    if (!grupo) return;
+    const valor = numBR(item.valorFinal || 0);
+    grupo.baseServico += valor;
+    grupo.servicos.push({
+      key: item.key,
+      desc: item.desc || '',
+      valor,
+      statusExecucao: registro.status || (temExecucaoServico ? 'sem_confirmacao' : 'legado_finalizado')
+    });
+  });
+
+  const principal = garantir(payload?.mecId || payload?.mecIds?.[0] || '');
+  if (principal) {
+    const pecasItens = itens.filter(item => item.tipo === 'peca' && (!temAprovacao || aprovados.has(item.key)));
+    principal.basePecas = pecasItens.length
+      ? pecasItens.reduce((soma, item) => soma + numBR(item.valorFinal || 0), 0)
+      : numBR(totalPecasFallback || 0);
+  }
+
+  return Array.from(mapa.values()).map(grupo => {
+    const percServico = numBR(grupo.mec.comissaoServico ?? 0);
+    const percPeca = numBR(grupo.mec.comissaoPeca || 0);
+    const baseServico = +grupo.baseServico.toFixed(2);
+    const basePecas = +grupo.basePecas.toFixed(2);
+    const valorServico = +(baseServico * (percServico / 100)).toFixed(2);
+    const valorPeca = +(basePecas * (percPeca / 100)).toFixed(2);
+    return {
+      mecId: grupo.mecId,
+      mecNome: grupo.mec.nome || grupo.mecId,
+      baseServico,
+      basePecas,
+      percServico,
+      percPeca,
+      valorServico,
+      valorPeca,
+      valorTotal: +(valorServico + valorPeca).toFixed(2),
+      servicos: grupo.servicos
+    };
+  }).filter(item => item.valorTotal > 0);
+}
+
+async function reconciliarComissoesOS(osId, payload, calculos) {
+  if (!osId || !window.db || !window.J?.tid) return;
+  const snap = await db.collection('financeiro')
+    .where('tenantId', '==', J.tid)
+    .where('osId', '==', osId)
+    .get();
+  const existentes = snap.docs
+    .map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }))
+    .filter(fin => fin.isComissao === true);
+  const alvos = new Map((calculos || []).map(calc => [String(calc.mecId), calc]));
+  const mecanicos = new Set([
+    ...alvos.keys(),
+    ...existentes.map(fin => String(fin.mecId || '')).filter(Boolean)
+  ]);
+  const agora = new Date().toISOString();
+
+  for (const mecId of mecanicos) {
+    const calc = alvos.get(mecId);
+    const registros = existentes.filter(fin => String(fin.mecId || '') === mecId && !financeiroOSCanceladoOS(fin));
+    const pagos = registros.filter(fin => financeiroOSLiquidadoOS(fin));
+    const pendentes = registros.filter(fin => !financeiroOSLiquidadoOS(fin));
+    const totalPago = +pagos.reduce((soma, fin) => soma + numBR(fin.valor || 0), 0).toFixed(2);
+    const alvoTotal = numBR(calc?.valorTotal || 0);
+    const saldoPendente = +(alvoTotal - totalPago).toFixed(2);
+
+    if (Math.abs(saldoPendente) < 0.01 || !calc) {
+      for (const pendente of pendentes) {
+        await pendente.ref.update({
+          status: 'Cancelado',
+          canceladoEm: agora,
+          motivoCancelamento: calc
+            ? 'Comissão já liquidada no valor calculado'
+            : 'Comissão removida após alteração dos responsáveis/serviços da O.S.',
+          updatedAt: agora
+        });
+      }
+      continue;
+    }
+
+    const dados = {
+      tenantId: J.tid,
+      tipo: 'Saída',
+      status: 'Pendente',
+      desc: `${saldoPendente < 0 ? 'Ajuste de ' : ''}Comissão O.S. ${payload.placa || ''} — ${calc.mecNome} (Serv: ${moeda(calc.valorServico)} | Peça: ${moeda(calc.valorPeca)})`,
+      valor: saldoPendente,
+      pgto: 'A Combinar',
+      venc: dataLocalISOOS(),
+      osId,
+      isComissao: true,
+      isAjusteComissao: saldoPendente < 0,
+      mecId,
+      mecNome: calc.mecNome,
+      vinculo: `E_${mecId}`,
+      origem: saldoPendente < 0 ? 'comissao_os_ajuste' : 'comissao_os_por_servico',
+      chaveComissao: `${osId}:${mecId}`,
+      baseServico: calc.baseServico,
+      basePecas: calc.basePecas,
+      percServico: calc.percServico,
+      percPeca: calc.percPeca,
+      valorComissaoServico: calc.valorServico,
+      valorComissaoPeca: calc.valorPeca,
+      totalComissaoCalculada: calc.valorTotal,
+      totalComissaoJaPago: totalPago,
+      servicosComissao: calc.servicos,
+      updatedAt: agora
+    };
+    if (pendentes.length) {
+      await pendentes[0].ref.update(dados);
+      for (const duplicada of pendentes.slice(1)) {
+        await duplicada.ref.update({
+          status: 'Cancelado',
+          canceladoEm: agora,
+          motivoCancelamento: 'Comissão duplicada reconciliada por mecânico e serviço',
+          updatedAt: agora
+        });
+      }
+    } else {
+      await db.collection('financeiro').add({ ...dados, createdAt: agora });
+    }
+  }
+}
+
 window.salvarOS = async function() {
   const osId = $v('osId');
   const prismaInformadoOS = ($v('osPrisma') || '').trim();
@@ -2899,6 +3169,9 @@ window.salvarOS = async function() {
     const valorHoraTabela = numBR(calc.valorHoraTabela || (secaoInfo ? secaoInfo.valor : row.dataset?.valorHoraSecao || 0));
     const secaoHoraLabel = calc.secaoHoraLabel || secaoInfo?.label || row.dataset?.secaoHoraLabel || '';
     const valorHoraManual = row.dataset?.valorHoraManual === '1' || (valorHoraTabela > 0 && valorHora > 0 && Math.abs(valorHora - valorHoraTabela) > 0.009);
+    const mecIdServico = calc.mecId || row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '';
+    const mecServico = (window.J?.equipe || []).find(f => String(f.id) === String(mecIdServico));
+    const mecNomeServico = mecServico?.nome || calc.mecNome || row.dataset?.mecNome || '';
     if (desc || valor > 0 || valorFinal > 0 || tempo > 0) {
       servicos.push({
         desc,
@@ -2917,6 +3190,10 @@ window.salvarOS = async function() {
         valorHora,
         valorHoraTabela,
         valorHoraManual,
+        mecId: mecIdServico,
+        mecNome: mecNomeServico,
+        responsavelId: mecIdServico,
+        responsavelNome: mecNomeServico,
         tempaManual: row.dataset?.tempaManual === '1',
         relacionadoCilia: row.dataset?.servRelacionado === '1',
         origemServico: row.dataset?.servRelacionado === '1'
@@ -2931,6 +3208,33 @@ window.salvarOS = async function() {
   document.querySelectorAll('#containerServicosOS > div').forEach(_lerLinhaServico);
   // CORREÇÃO 6: também lê serviços relacionados Cilia (dentro das peças)
   document.querySelectorAll('#containerPecasOS .cilia-serv-relac').forEach(_lerLinhaServico);
+
+  let mecanicoIdsOS = idsUnicosMecanicosOS([
+    ...window.obterMecanicosSelecionadosOS(),
+    ...servicos.map(s => s.mecId)
+  ]);
+  let mecanicoPrincipalOS = $v('osMec') || mecanicoIdsOS[0] || '';
+  if (mecanicoPrincipalOS) {
+    mecanicoIdsOS = idsUnicosMecanicosOS([mecanicoPrincipalOS, ...mecanicoIdsOS]);
+    if ($('osMec') && !$v('osMec')) $('osMec').value = mecanicoPrincipalOS;
+  }
+  if (mecanicoIdsOS.length === 1) {
+    const unico = snapshotMecanicoOS(mecanicoIdsOS[0]);
+    servicos.forEach(s => {
+      if (!s.mecId) {
+        s.mecId = unico.id;
+        s.mecNome = unico.nome;
+        s.responsavelId = unico.id;
+        s.responsavelNome = unico.nome;
+      }
+    });
+  }
+  const statusFinalComissaoOS = ['Pronto','Entregue','pronto','entregue','Concluido','Faturado','Pronto_Retirada'].includes($v('osStatus'));
+  const servicosSemResponsavelOS = servicos.filter(s => !s.mecId);
+  if (statusFinalComissaoOS && mecanicoIdsOS.length > 1 && servicosSemResponsavelOS.length) {
+    window.toast(`Defina o mecânico responsável em ${servicosSemResponsavelOS.length} serviço(s) antes de finalizar a O.S.`, 'warn');
+    return;
+  }
 
   const pecas = [];
   let totalPecas = 0;
@@ -3073,7 +3377,10 @@ window.salvarOS = async function() {
   if ($v('osDiagnostico')) payload.diagnostico = $v('osDiagnostico');
   if ($v('osRelato')) payload.relato = $v('osRelato');
   if ($v('osDescricao')) payload.desc = $v('osDescricao');
-  if ($v('osMec')) payload.mecId = $v('osMec');
+  payload.mecId = mecanicoPrincipalOS || _oldOSPreservar?.mecId || '';
+  payload.mecNome = snapshotMecanicoOS(payload.mecId, _oldOSPreservar).nome || _oldOSPreservar?.mecNome || '';
+  payload.mecIds = idsUnicosMecanicosOS([payload.mecId, ...mecanicoIdsOS, ...servicos.map(s => s.mecId)]);
+  payload.mecanicos = payload.mecIds.map(id => snapshotMecanicoOS(id, _oldOSPreservar));
   if ($v('osData')) payload.data = $v('osData');
   if ($v('osKm')) payload.km = $v('osKm');
   if ($v('osEntregueA')) payload.entreguePara = $v('osEntregueA');
@@ -3296,11 +3603,17 @@ window.salvarOS = async function() {
           }
       });
 
-      // 3b. Mudança de mecânico responsável
-      if (oldOS.mecId !== payload.mecId && payload.mecId) {
+      // 3b. Mudança da equipe de mecânicos da O.S.
+      const idsMecOld = idsMecanicosDocumentoOS(oldOS).sort();
+      const idsMecNovo = idsMecanicosDocumentoOS(payload).sort();
+      if (idsMecOld.join('|') !== idsMecNovo.join('|')) {
+          const nomesOld = idsMecOld.map(id => snapshotMecanicoOS(id).nome || id).join(', ') || '-';
+          const nomesNovo = idsMecNovo.map(id => snapshotMecanicoOS(id).nome || id).join(', ') || '-';
+          addAuditoriaCampo(`Equipe mecânica da O.S.: ${nomesOld} -> ${nomesNovo}`);
+      } else if (oldOS.mecId !== payload.mecId && payload.mecId) {
           const mecOld = (J.equipe || []).find(m => m.id === oldOS.mecId);
           const mecNovo = (J.equipe || []).find(m => m.id === payload.mecId);
-          addAuditoriaCampo(`Mecanico responsavel: ${mecOld?.nome || '-'} -> ${mecNovo?.nome || '-'}`);
+          addAuditoriaCampo(`Mecânico principal: ${mecOld?.nome || '-'} -> ${mecNovo?.nome || '-'}`);
       }
 
       // 3c. Mudança de KM
@@ -3387,6 +3700,11 @@ window.salvarOS = async function() {
               if (numBR(oldS.valorHora || 0) !== numBR(newS.valorHora || 0)) {
                   addAuditoriaCampo(`Alterou valor/hora do servico "${newS.desc}" de R$ ${numBR(oldS.valorHora || 0).toFixed(2).replace('.', ',')} para R$ ${numBR(newS.valorHora || 0).toFixed(2).replace('.', ',')}`);
               }
+              const oldMecServico = oldS.mecId || oldS.mecanicoId || oldS.responsavelId || oldOS.mecId || '';
+              const newMecServico = newS.mecId || newS.mecanicoId || newS.responsavelId || payload.mecId || '';
+              if (String(oldMecServico) !== String(newMecServico)) {
+                  addAuditoriaCampo(`Alterou responsável do serviço "${newS.desc}" de "${snapshotMecanicoOS(oldMecServico).nome || '-'}" para "${snapshotMecanicoOS(newMecServico).nome || '-'}"`);
+              }
           }
       });
       
@@ -3455,37 +3773,22 @@ window.salvarOS = async function() {
   payload.pgtoCombinado = formaPagamentoCombinadaOS(payload.pgtoForma) ? coletarPagamentosCombinadosOS() : [];
   if (formaPagamentoCombinadaOS(payload.pgtoForma)) payload.pgtoParcelas = 1;
 
-  // ═══════════════════════════════════════════════════════════════════
-  // BLOCO COMISSÃO — precisa de mecânico atribuído E status final
-  // ═══════════════════════════════════════════════════════════════════
-  const _statusFinal = ['Pronto','Entregue','pronto','entregue','Concluido','Faturado','Pronto_Retirada'].includes($v('osStatus'));
-  if (_statusFinal && payload.mecId) {
-      const mec = J.equipe.find(f => f.id === payload.mecId);
-      if (mec) {
-        const percServico = parseFloat(mec.comissaoServico || mec.comissao || 0);
-        const percPeca = parseFloat(mec.comissaoPeca || 0);
-        
-        const valComServico = totalMaoObra * (percServico / 100);
-        const valComPeca = totalPecas * (percPeca / 100);
-        const valComTotal = valComServico + valComPeca;
-
-        const comissaoJaLancadaOS = !!(osId && (window.J?.financeiro || []).some(f =>
-            f?.isComissao === true &&
-            f?.osId === osId &&
-            !financeiroOSCanceladoOS(f)
-        ));
-
-        if (valComTotal > 0 && osId && !comissaoJaLancadaOS) {
-            db.collection('financeiro').add({
-                tenantId: J.tid, tipo: 'Saída', status: 'Pendente',
-                desc: `Comissão (Serv: ${moeda(valComServico)} | Peça: ${moeda(valComPeca)}) — O.S. ${payload.placa || ''}`,
-                valor: valComTotal, pgto: 'A Combinar', venc: dataLocalISOOS(),
-                osId: osId,
-                createdAt: new Date().toISOString(), isComissao: true, mecId: payload.mecId, vinculo: `E_${payload.mecId}`
-            });
-        }
-      }
-  }
+  // Comissão por serviço e mecânico. mecId continua sendo o responsável
+  // principal para compatibilidade e para a comissão de peças.
+  const _statusFinal = statusFinalComissaoOS;
+  const payloadBaseComissaoOS = Object.assign({}, oldOSParaAprovacao || {}, payload, {
+    servicos: payload.servicos || oldOSParaAprovacao.servicos || [],
+    pecas: payload.pecas || oldOSParaAprovacao.pecas || [],
+    execucaoItens: payload.execucaoItens || oldOSParaAprovacao.execucaoItens || {},
+    aprovacao: isFirestoreSentinelOS(payload.aprovacao) ? oldOSParaAprovacao.aprovacao : (payload.aprovacao || oldOSParaAprovacao.aprovacao),
+    itensAprovados: isFirestoreSentinelOS(payload.itensAprovados)
+      ? (oldOSParaAprovacao.itensAprovados || [])
+      : (payload.itensAprovados || oldOSParaAprovacao.itensAprovados || [])
+  });
+  const comissoesOSCalculadas = _statusFinal
+    ? calcularComissoesPorMecanicoOS(payloadBaseComissaoOS, totalPecas)
+    : [];
+  payload.comissoesCalculadas = comissoesOSCalculadas;
 
   // ═══════════════════════════════════════════════════════════════════
   // BLOCO RECEBIMENTO FINANCEIRO (CORREÇÃO 1)
@@ -3794,6 +4097,8 @@ if (osId) {
     window.toast('✓ O.S. CRIADA');
     audit('OS', `Criou OS para ${payload.placa || payload.cliente || J.clientes.find(c => c.id === payload.clienteId)?.nome}`);
   }
+
+  await reconciliarComissoesOS(savedOsId, payload, comissoesOSCalculadas);
 
   if (auditoriaGeralOS.length) {
     for (const acao of auditoriaGeralOS) {
@@ -4960,12 +5265,19 @@ window.salvarExecucaoAprovadosOS = async function(osId) {
   rows.forEach(row => {
     const key = row.dataset.key;
     if (!key) return;
+    const mecIdExecucao = row.querySelector('.exec-mec')?.value || row.dataset.mecId || '';
+    const mecExecucao = snapshotMecanicoOS(mecIdExecucao);
     execucaoItens[key] = {
       key,
       tipo: row.dataset.tipo || '',
       status: row.querySelector('.exec-status')?.value || 'pendente',
       obs: row.querySelector('.exec-obs')?.value?.trim() || '',
+      mecId: mecIdExecucao,
+      mecNome: mecExecucao.nome || '',
+      responsavelId: mecIdExecucao,
+      responsavelNome: mecExecucao.nome || '',
       usuario: window.J?.nome || 'Gestor',
+      atualizadoPorId: window.J?.fid || window.J?.uid || '',
       updatedAt: new Date().toISOString()
     };
   });
@@ -5367,8 +5679,13 @@ window.aplicarMarcadoresAprovacaoOS = function(os) {
       <div style="display:grid;gap:7px;">
         ${aprovados.map(it => {
           const e = exec[it.key] || {};
-          return `<div class="execucao-aprovado-row" data-key="${escOS(it.key)}" data-tipo="${escOS(it.tipo)}" style="display:grid;grid-template-columns:minmax(230px,1fr) 180px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
+          const mecIdItem = e.mecId || e.responsavelId || it.mecId || it.responsavelId || os.mecId || '';
+          const seletorMec = String(it.tipo || '').toLowerCase().includes('serv')
+            ? `<select class="j-select exec-mec" style="font-size:.70rem;">${opcoesResponsavelServicoOS(mecIdItem)}</select>`
+            : '<span></span>';
+          return `<div class="execucao-aprovado-row" data-key="${escOS(it.key)}" data-tipo="${escOS(it.tipo)}" data-mec-id="${escOS(mecIdItem)}" style="display:grid;grid-template-columns:minmax(230px,1fr) minmax(150px,190px) 180px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
             <div style="font-size:.75rem;color:var(--text);"><b>${escOS(it.labelTipo || it.tipo)}</b> ${it.codigo ? '[' + escOS(it.codigo) + '] ' : ''}${escOS(it.desc || '-')}${it.tempo ? `<br><small style="color:var(--muted);">TMO ${String(it.tempo).replace('.', ',')}h</small>` : ''}</div>
+            ${seletorMec}
             <select class="j-select exec-status" style="font-size:.72rem;">${statusOptionsExecOS(it.tipo, e.status || 'pendente')}</select>
             <input class="j-input exec-obs" value="${escOS(e.obs || '')}" placeholder="Observação interna: peça não encontrada, aguardando, executado...">
           </div>`;
@@ -6629,6 +6946,8 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
   row.dataset.pecaDesc = pecaDesc || '';
   row.dataset.pecaCodigo = pecaCodigo || '';
   row.dataset.tempaManual = servico?.tempaManual ? '1' : (itemTempa ? '' : '1');
+  row.dataset.mecId = servico?.mecId || servico?.mecanicoId || servico?.responsavelId || '';
+  row.dataset.mecNome = servico?.mecNome || servico?.mecanicoNome || servico?.responsavelNome || '';
 
   if (itemTempa) {
     const { secaoInfo } = _ciliaResolverValorHoraTempa(itemTempa, ctxBase);
@@ -6673,6 +6992,7 @@ window._ciliaAddServicoRelacionado = function(btn, opts = {}) {
     </div>
   `;
   list.appendChild(row);
+  window.garantirResponsavelLinhaServicoOS?.(row, row.dataset.mecId || '');
   if (!opts.auto && !opts.servico) {
     setTimeout(() => {
       const inp = row.querySelector('.serv-desc');
