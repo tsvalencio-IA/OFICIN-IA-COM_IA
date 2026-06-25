@@ -1727,7 +1727,8 @@ function opcoesResponsavelServicoOS(selectedId) {
 
 window.garantirResponsavelLinhaServicoOS = function(row, selectedId) {
   if (!row?.querySelector?.('.serv-desc')) return;
-  const idAtual = selectedId || row.dataset?.mecId || row.querySelector('.serv-mec')?.value || '';
+  const mecanicoPrincipal = document.getElementById('osMec')?.value || '';
+  const idAtual = selectedId || row.dataset?.mecId || row.querySelector('.serv-mec')?.value || mecanicoPrincipal;
   let wrap = row.querySelector('.serv-mec-wrap');
   if (!wrap) {
     wrap = document.createElement('div');
@@ -1759,8 +1760,19 @@ window.atualizarResponsaveisServicoOS = function() {
 };
 
 window.atualizarEquipeMecanicosOS = function() {
+  const principalAnterior = String(window._osMecPrincipalAnterior || '');
+  const principalAtual = String(document.getElementById('osMec')?.value || '');
+  document.querySelectorAll('#containerServicosOS > div, #containerPecasOS .cilia-serv-relac').forEach(row => {
+    const responsavelAtual = String(row.querySelector('.serv-mec')?.value || row.dataset?.mecId || '');
+    const deveHerdarPrincipal = !responsavelAtual || (!!principalAnterior && responsavelAtual === principalAnterior);
+    window.garantirResponsavelLinhaServicoOS(
+      row,
+      deveHerdarPrincipal ? principalAtual : responsavelAtual
+    );
+  });
   window.renderMecanicosEquipeOS();
   window.atualizarResponsaveisServicoOS();
+  window._osMecPrincipalAnterior = principalAtual;
 };
 
 
@@ -1813,6 +1825,7 @@ window.prepOS = function(mode, id = null) {
   if (typeof window.limparOsMediaPreview === 'function') window.limparOsMediaPreview();
 
   if (typeof window.popularSelects === 'function') window.popularSelects();
+  window._osMecPrincipalAnterior = '';
   window.renderMecanicosEquipeOS?.([]);
 
   if (mode === 'add') { 
@@ -1843,6 +1856,7 @@ window.prepOS = function(mode, id = null) {
     }, 100);
 
     if ($('osMec')) $('osMec').value = o.mecId || idsMecanicosDocumentoOS(o)[0] || '';
+    window._osMecPrincipalAnterior = $('osMec')?.value || '';
     window.renderMecanicosEquipeOS?.(idsMecanicosDocumentoOS(o));
     if ($('osCelular')) $('osCelular').value = o.celular || '';
     if ($('osCpf')) $('osCpf').value = o.cpf || '';
