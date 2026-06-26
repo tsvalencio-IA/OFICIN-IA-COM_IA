@@ -632,6 +632,13 @@
     });
   }
 
+  function modoRelatorioFuncionario(q) {
+    if (/\b(detalhado|detalhada|detalhes|completo|completa|analitico|analitica)\b/.test(q)) return 'detalhado';
+    if (/\b(resumo|resumido|resumida|sintetico|sintetica|curto|curta|simples)\b/.test(q)) return 'resumo';
+    if (/\b(so|somente|apenas)\s+resumo\b/.test(q)) return 'resumo';
+    return 'detalhado';
+  }
+
   function responderAtendimentosFuncionarioPeriodo(texto, q, ctx, opts) {
     const periodo = extrairPeriodoPergunta(texto);
     if (!periodo) return null;
@@ -652,6 +659,7 @@
     const percentualRaw = func?.comissaoServico ?? func?.comissao;
     const percentualCadastrado = percentualRaw != null && String(percentualRaw).trim() !== '';
     const percentualComissao = percentualCadastrado ? num(percentualRaw) : null;
+    const modoRelatorio = modoRelatorioFuncionario(q);
     const linhas = lista.map(({ os, servicos }) => {
       const veiculo = veiculoDeOS(ctx, os);
       const placa = placaOS(ctx, os) || '-';
@@ -706,6 +714,30 @@
         ? '<br>- Comiss&atilde;o a pagar: <strong>n&atilde;o calculada; cadastre o percentual do colaborador</strong>'
         : `<br>- Comiss&atilde;o calculada: <strong>${moeda(valorComissao)}</strong>`
     ].join('') : '';
+    if (modoRelatorio === 'resumo') {
+      const linhasResumo = lista.map(({ os, servicos }) => {
+        const veiculo = veiculoDeOS(ctx, os);
+        const placa = placaOS(ctx, os) || '-';
+        const modelo = veiculo.modelo || os.veiculoSnapshot?.modelo || os.veiculoModelo || os.veiculo || os.tipoVeiculo || '-';
+        const osNumero = String(os.numero || os.id || '').slice(-6).toUpperCase();
+        const listaServicos = servicos.confirmados.length ? servicos.confirmados : servicos.registrados;
+        const totalOS = servicos.confirmados.length ? servicos.totalConfirmado : servicos.totalRegistrado;
+        const descricoes = listaServicos.map(s => s.desc).filter(Boolean).join('; ') || 'Sem servi&ccedil;o identificado';
+        return `${esc(nome)}: O.S. #${esc(osNumero)} | Placa ${esc(placa)} | Modelo ${esc(modelo)}${podeVerValores ? ` | Valor ${moeda(totalOS)}` : ''}<br>(&quot;${esc(descricoes)}&quot;)`;
+      });
+      const resumoValores = podeVerValores ? [
+        `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`,
+        `<br><strong>M&atilde;o de obra confirmada:</strong> ${moeda(totalConfirmado)}`,
+        `<br><strong>M&atilde;o de obra finalizada legada:</strong> ${moeda(totalLegadoFinalizado)}`,
+        `<br><strong>Base para comiss&atilde;o:</strong> ${moeda(baseComissao)}`,
+        valorComissao == null ? '' : `<br><strong>Comiss&atilde;o calculada:</strong> ${moeda(valorComissao)}`
+      ].join('') : `<br><strong>Total de O.S.:</strong> ${esc(lista.length)} | <strong>Ve&iacute;culos:</strong> ${esc(veiculosUnicos.size)}`;
+      return [
+        `<strong>Resumo de ${esc(nome)} de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}:</strong>`,
+        linhasResumo.join('<br><br>'),
+        resumoValores
+      ].join('<br>');
+    }
     return [
       `<strong>Atendimentos de ${esc(nome)} de ${esc(dataBR(periodo.inicio))} at&eacute; ${esc(dataBR(periodo.fim))}:</strong>`,
       `${lista.length} O.S. em ${veiculosUnicos.size} ve&iacute;culo(s).`,
