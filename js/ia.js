@@ -95,10 +95,56 @@
     return textoLivre(f, ['id','nome','usuario','cargo','apelido','email','wpp']);
   }
 
+  function tokensPerguntaFuncionario(q) {
+    return norm(q)
+      .split(/\s+/)
+      .map(t => t.trim())
+      .filter(t => t.length >= 3)
+      .filter(t => !/^\d{1,2}[\/.-]\d{1,2}/.test(t))
+      .filter(t => !/^(comiss|comissao|comissoes|pagar|pagas|pago|pendente|funcionario|mecanico|mecanicos|colaborador|colaboradores|responsavel|responsaveis|servico|servicos|atendeu|atendimentos|realizou|executou|trabalhou|veiculo|veiculos|ordem|ordens|relatorio|valor|valores|total|para|ate|dia|dias|quais|qual|dos|das|do|da|de|com|sem|no|na|nos|nas|os|as|financeiro)$/.test(t));
+  }
+
+  function limparTermoFuncionarioPergunta(v) {
+    return norm(v)
+      .replace(/\b\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\b/g, ' ')
+      .replace(/\b(?:ate|entre|periodo|periodos|dia|dias|servico|servicos|atendimento|atendimentos|realizou|executou|trabalhou|veiculo|veiculos|ordem|ordens|o\.?s\.?)\b/g, ' ')
+      .replace(/\b(o|a|os|as|do|da|de|dos|das|no|na|nos|nas)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function funcionarioPorNomeExtraido(ctx, termo) {
+    const equipe = Array.isArray(ctx?.equipe) ? ctx.equipe : [];
+    const alvo = limparTermoFuncionarioPergunta(termo);
+    if (alvo.length < 3) return null;
+    let melhor = null;
+    let melhorScore = 0;
+    const alvoTokens = alvo.split(/\s+/).filter(t => t.length >= 3);
+    equipe.forEach(f => {
+      const candidatos = [f.nome, f.usuario, f.apelido, f.login, f.email]
+        .map(v => norm(v).trim())
+        .filter(v => v.length >= 3);
+      let score = 0;
+      candidatos.forEach(c => {
+        if (!c) return;
+        if (c === alvo) score = Math.max(score, 3000 + c.length);
+        else if (c.includes(alvo) || alvo.includes(c)) score = Math.max(score, 2000 + Math.min(c.length, alvo.length));
+        else {
+          const cTokens = c.split(/\s+/).filter(t => t.length >= 3);
+          const comuns = alvoTokens.filter(t => cTokens.includes(t)).length;
+          if (comuns) score = Math.max(score, comuns * 100 + cTokens.join(' ').length);
+        }
+      });
+      if (score > melhorScore) { melhor = f; melhorScore = score; }
+    });
+    return melhorScore >= 100 ? melhor : null;
+  }
+
   function funcionarioPorPergunta(ctx, q) {
     const equipe = Array.isArray(ctx.equipe) ? ctx.equipe : [];
     const pergunta = norm(q);
-    const termosQ = pergunta.split(/\s+/).filter(t => t.length >= 3 && !/comiss|comissao|comissoes|pagar|pagas|pago|pendente|funcionario|mecanico|colaborador|para|do|da|de|com|financeiro/.test(t));
+    const termosQ = tokensPerguntaFuncionario(q);
+    const tokensQ = new Set(pergunta.split(/\s+/).filter(Boolean));
     let melhor = null;
     let melhorScore = 0;
     equipe.forEach(f => {
@@ -109,11 +155,15 @@
         .map(v => norm(v).trim())
         .filter(Boolean);
       aliases.forEach(alias => {
-        if (pergunta.includes(alias)) score += 1000 + alias.length;
+        if (alias.length >= 3) {
+          if (pergunta.includes(alias)) score += 1000 + alias.length;
+        } else if (tokensQ.has(alias)) {
+          score += 100 + alias.length;
+        }
       });
       termosQ.forEach(t => { if (nome.includes(t)) score += t.length; });
       const nomeTokens = norm(f.nome || '').split(/\s+/).filter(Boolean);
-      nomeTokens.forEach(t => { if (t.length >= 3 && pergunta.includes(t)) score += t.length + 2; });
+      nomeTokens.forEach(t => { if (t.length >= 3 && tokensQ.has(t)) score += t.length + 2; });
       if (score > melhorScore) { melhor = f; melhorScore = score; }
     });
     return melhorScore >= 3 ? melhor : null;
@@ -405,10 +455,12 @@
   }
 
   function funcionarioDaPerguntaOperacional(ctx, texto, q) {
+    const m = norm(texto).match(/\b(?:mecanico|funcionario|colaborador|responsavel)\s+(?:o|a|os|as|do|da|de|dos|das)?\s*(.+?)(?=\s+(?:atendeu|atendimentos?|realizou|executou|trabalhou|do\s+dia|entre|de\s+\d|no\s+periodo)|[?,.!]|$)/);
+    const nome = limparTermoFuncionarioPergunta(m?.[1] || '');
+    const porNome = funcionarioPorNomeExtraido(ctx, nome);
+    if (porNome) return porNome;
     const cadastrado = funcionarioPorPergunta(ctx, q);
     if (cadastrado) return cadastrado;
-    const m = norm(texto).match(/\b(?:mecanico|funcionario|colaborador|responsavel)\s+(.+?)(?=\s+(?:atendeu|atendimentos?|realizou|executou|trabalhou|do\s+dia|entre|de\s+\d|no\s+periodo)|[?,.!]|$)/);
-    const nome = String(m?.[1] || '').replace(/\b(o|a|os|as|do|da|de)\b/g, ' ').replace(/\s+/g, ' ').trim();
     return nome.length >= 3 ? { id: '', nome, origemHistorica: true } : null;
   }
 
